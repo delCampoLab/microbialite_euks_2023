@@ -1,0 +1,746 @@
+---
+title: "Microbialites-Phyloseq"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load packages, include=FALSE}
+library("phyloseq"); packageVersion("phyloseq")
+library("Biostrings"); packageVersion("Biostrings")
+library("ggplot2"); packageVersion("ggplot2")
+library("vegan"); packageVersion("vegan")
+library("viridis"); packageVersion("viridis")
+library("tidyr"); packageVersion("tidyr")
+library("plyr"); packageVersion("plyr")
+library("dplyr"); packageVersion("dplyr")
+library("scales"); packageVersion("scales")
+library("grid"); packageVersion("grid")
+library("reshape2"); packageVersion("reshape2")
+library("edgeR"); packageVersion("edgeR")
+library("tidyr"); packageVersion("tidyr")
+library("viridis"); packageVersion("viridis")
+library("gridExtra"); packageVersion("gridExtra")
+library("ape"); packageVersion("ape")
+library("microbiome"); packageVersion("microbiome")
+library("ggpubr"); packageVersion("ggpubr")
+library("knitr"); packageVersion("knitr")
+library("ggjoy"); packageVersion("ggjoy")
+library("ggtree"); packageVersion("ggtree")
+library("ggstance"); packageVersion("ggstance")
+library("phytools"); packageVersion("phytools")
+library("QsRutils"); packageVersion("QsRutils")
+library("MMUPHin"); packageVersion("MMUPHin")
+library("magrittr"); packageVersion("magrittr")
+library("data.table"); packageVersion("data.table")
+```
+
+```{r Load Phyloseq Object, include=FALSE}
+SV <- read.table("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/r_data/ASVs_counts.tsv", row.names = 1, check.names= FALSE, sep = "\t", header = TRUE)
+tax <-as.matrix(read.table("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/r_data/ASVs_taxonomy-curated-Jan2022.tsv", row.names = 1, header = TRUE, sep = "\t"))
+map <- read.table("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/r_data/combined-metadata.txt", row.names = 1, sep ="\t", header = TRUE)
+ps = phyloseq(otu_table(SV, taxa_are_rows=TRUE), 
+               sample_data(map), 
+               tax_table(tax))
+ps
+# Manually curate ASVs
+asvs <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/r_data/ASVs_to_keep.csv",header=F)
+tokeep <- asvs %>% pull(V1)
+my_subset <- subset(otu_table(ps), rownames(otu_table(ps)) %in% tokeep)
+ps_filtered.w.meta <- merge_phyloseq(my_subset, tax_table(ps), sample_data(ps))
+ps_filtered.w.meta
+
+#Remove Pavilion 454 samples
+ps_filtered.w.meta <- subset_samples(ps_filtered.w.meta , RDS != "Pavilion-seqtab.rds")
+ps_filtered.w.meta
+# Filter and create new phyloseq objects
+ps_filtered <- subset_taxa(ps_filtered.w.meta, (Division!="Metazoa"| is.na(Division)))
+ps_filtered <- subset_taxa(ps_filtered, (Class!="Embryophyceae"| is.na(Class)))
+ps_filtered
+psf_mb <- subset_samples(ps_filtered, ps_filtered@sam_data$Environment2=='microbialite')
+psf_mb_metaplus <- subset_samples(ps_filtered.w.meta, ps_filtered.w.meta@sam_data$Environment2=='microbialite')
+psf_mb_metaplus <- subset_samples(psf_mb_metaplus, psf_mb_metaplus@sam_data$Location!='Lake Alchichica')
+psf_mb_meta <- subset_taxa(psf_mb_metaplus, (Division=="Metazoa"))
+psf_mb_meta <- subset_samples(psf_mb_meta, psf_mb_meta@sam_data$Location!='Lake Alchichica') # Remove Alchichica from Matezoan Analysis
+psf_mb_meta
+psf_mb_embry <- subset_taxa(ps_filtered.w.meta, (Class=="Embryophyceae"))
+psf_mb_alt <- subset_samples(psf_mb, psf_mb@sam_data$Location!='Lake Alchichica')
+psf_mb_alt <- subset_samples(psf_mb_alt, psf_mb_alt@sam_data$Location!='Green Lake')
+psf_mb_meta_alt <- subset_samples(psf_mb_metaplus, psf_mb_metaplus@sam_data$Location!='Lake Alchichica')
+psf_mb_meta_alt <- subset_samples(psf_mb_meta_alt, psf_mb_meta_alt@sam_data$Location!='Green Lake')
+
+# Generate colors for figures
+library(randomcoloR)
+n <- 100
+palette <- distinctColorPalette(n)
+c25 <- c(
+  "dodgerblue2", "#E31A1C", # red
+  "green4",
+  "#6A3D9A", # purple
+  "#FF7F00", # orange
+  "black", "gold1",
+  "skyblue2", "#FB9A99", # lt pink
+  "palegreen2",
+  "#CAB2D6", # lt purple
+  "#FDBF6F", # lt orange
+  "gray70", "khaki2",
+  "maroon", "orchid1", "deeppink1", "blue1", "steelblue4",
+  "darkturquoise", "green1", "yellow4", "yellow3",
+  "darkorange4", "brown"
+)
+
+# Generate taxa list to organize figures
+euk_divisions_csv <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/division.csv",header=F)
+euk_divisions <- euk_divisions_csv %>% pull(V1)
+euk_classes_csv <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/class.csv",header=F)
+euk_classes <- euk_classes_csv %>% pull(V1)
+euk_families_csv <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/family.csv",header=F)
+euk_families <- euk_families_csv %>% pull(V1)
+euk_orders_csv <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/order.csv",header=F)
+euk_orders <- euk_orders_csv %>% pull(V1)
+euk_genus_csv <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/genus.csv",header=F)
+euk_genus <- euk_genus_csv %>% pull(V1)
+```
+
+
+# Alpha Diversity
+## Location
+```{r}
+library(microbiome)
+library(ggpubr)
+library(knitr)
+library(dplyr)
+ad <- prune_taxa(taxa_sums(psf_mb_alt) > 0, psf_mb_alt)
+tab <- microbiome::alpha(ad, index = "shannon")
+kable(head(tab))
+ps1.meta <- meta(ad)
+kable(head(ps1.meta))
+ps1.meta$Shannon <- tab$diversity_shannon 
+fam <- unique(ps1.meta$Location)
+fam.pairs <- combn(seq_along(fam), 2, simplify = FALSE, FUN = function(i)fam[i])
+p1 <- ggboxplot(ps1.meta, x = "Location", y = "Shannon",
+ add = "boxplot", fill = "Location", order= c("Kelly Lake", "Pavilion Lake", "Highborne Cay", "Shark Bay")) + theme_classic() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + scale_fill_viridis_d() + 
+  labs(fill='Location', title="Shannon Diversity of Microbialite Eukaryome by Location", x="Location", subtitle = "Excluding Metazoan & Embryophyceae Reads") + theme(legend.position="none")
+p1 <- p1 + stat_compare_means(comparisons = fam.pairs) 
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_March2023/Fig1A_Alpha_loc.pdf", width=8.5, height=5)
+plot(p1)
+dev.off()
+```
+
+## Salinity
+```{r}
+ad <- prune_taxa(taxa_sums(psf_mb_alt) > 0, psf_mb_alt)
+tab <- microbiome::alpha(ad, index = "shannon")
+kable(head(tab))
+ps1.meta <- meta(ad)
+kable(head(ps1.meta))
+ps1.meta$Shannon <- tab$diversity_shannon 
+fam <- unique(ps1.meta$SaltOrFresh)
+fam.pairs <- combn(seq_along(fam), 2, simplify = FALSE, FUN = function(i)fam[i])
+p2 <- ggboxplot(ps1.meta, x = "SaltOrFresh", y = "Shannon",
+ add = "boxplot", fill = "SaltOrFresh") + theme_classic() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + scale_fill_viridis_d(option="C") + 
+  labs(fill='SaltOrFresh', title="Shannon Diversity of Microbialite Eukaryome by Salinity", x="SaltOrFresh", subtitle = "Excluding Metazoan & Embryophyceae Reads") + theme(legend.position="none")
+p2 <- p2 + stat_compare_means(comparisons = fam.pairs) 
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_March2023/Fig1B_Alpha_Salinity.pdf", width=8.5, height=5)
+plot(p1)
+dev.off()
+```
+
+# Beta Diversity
+# Beta
+```{r}
+ps_clr <- microbiome::transform(psf_mb_alt, 'clr', shift = 1)
+psr_clr.ord <- ordinate(ps_clr, "RDA", "euclidean")
+PCA = plot_ordination(ps_clr, psr_clr.ord,
+                                shape="SaltOrFresh",
+                                color="Location",
+                                title="Aitchison Distance PCA of Microbialite Eukaryome") + theme_classic() + geom_point(aes(color = Location), alpha = 1, size = 3) + scale_colour_manual(values=c25) + labs(color="Location", shape="Biome") + scale_color_viridis_d()
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_March2023/Fig1C_PCA.pdf",  width=10, height=6.5)
+plot(PCA)
+dev.off()
+```
+##Stats
+```{r}
+library(ALDEx2);packageVersion("ALDEx2")
+library(vegan); packageVersion("vegan")
+library(CoDaSeq); packageVersion("CoDaSeq")
+bd <- prune_taxa(taxa_sums(psf_mb_alt) > 0, psf_mb_alt)
+taxon <- bd@tax_table
+OTU_tab <-bd@otu_table
+d.czm <- cmultRepl(bd@otu_table, method="GBM", label=0)
+d.clr <- codaSeq.clr(d.czm)
+E.clr <- t(d.clr)
+d.pcx <- prcomp(E.clr)
+dist.clr <- dist(E.clr)
+var1 <- bd@sam_data$Location
+ano.var1 <- anosim(dist.clr, var1, permutations=999)
+plot(ano.var1)
+ano.var1
+#ANOSIM statistic R: 0.5278 
+#      Significance: 0.001 
+#Number of permutations: 999
+perm<-adonis(dist.clr~var1,as(sample_data(bd),"data.frame"))
+print(perm)
+#Permutation: free
+#Number of permutations: 999
+#          Df SumsOfSqs MeanSqs F.Model     R2 Pr(>F)    
+#var1       3     68947 22982.4  3.7275 0.3705  0.001 ***
+#Residuals 19    117148  6165.7         0.6295           
+#Total     22    186095                 1.0000           
+#---
+#Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+var2 <- bd@sam_data$SaltOrFresh
+ano.var2 <- anosim(dist.clr, var2, permutations=999)
+plot(ano.var2)
+ano.var2
+#ANOSIM statistic R: 0.669 
+#      Significance: 0.001 
+#Number of permutations: 999
+```
+
+# Bubble Plot of Locations
+```{r}
+sd1 <- psf_mb_alt %>% 
+  tax_glom(taxrank = "Family") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} ) %>% 
+  psmelt() %>% group_by(OTU, Location)  %>%
+  summarize(sd = sd(Abundance, na.rm=FALSE)) %>% arrange(OTU)
+type_taxa <- psf_mb_alt %>% merge_samples("Location")
+type_taxa2 <- type_taxa %>%
+  tax_glom(taxrank = "Family") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )   %>% 
+  psmelt() %>% 
+  arrange(OTU) 
+type_taxa2$Family[type_taxa2$Family == "CONTH_3_XX"] <- "CONTH_3 IS"
+type_taxa2$Family[type_taxa2$Family == "Litostomatea_XX"] <- "Litostomatea IS"
+type_taxa2$Family[type_taxa2$Family == "Oligohymenophorea_XX"] <- "Oligohymenophorea IS"
+type_taxa2$Family[type_taxa2$Family == "Suctoria_X"] <- "Suctoria IS"
+type_taxa2$Family[type_taxa2$Family == "Plagiopylea_XX"] <- "Plagiopylea IS"
+type_taxa2$Family[type_taxa2$Family == "Hypotrichia_X"] <- "Hypotrichia IS"
+type_taxa2$Family[type_taxa2$Family == "Dinophyceae_XX"] <- "Dinophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Variosea_XX"] <- "Variosea IS"
+type_taxa2$Family[type_taxa2$Family == "Apusomonadidae_Group-1_XX"] <- "Apusomonadidae_Group-1 IS"
+type_taxa2$Family[type_taxa2$Family == "Chlamydomonadales_X"] <- "Chlamydomonadales IS"
+type_taxa2$Family[type_taxa2$Family == "Oedogoniales_X"] <- "Oedogoniales IS"
+type_taxa2$Family[type_taxa2$Family == "Sphaeropleales_X"] <- "Sphaeropleales IS"
+type_taxa2$Family[type_taxa2$Family == "Chlorophyta_XXX"] <- "Chlorophyta IS"
+type_taxa2$Family[type_taxa2$Family == "Chlorellales_X"] <- "Chlorellales IS"
+type_taxa2$Family[type_taxa2$Family == "Trebouxiophyceae_XX"] <- "Trebouxiophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Watanabea−Clade_X"] <- "Watanabea−Clade IS"
+type_taxa2$Family[type_taxa2$Family == "Cladophorales_X"] <- "Cladophorales IS"
+type_taxa2$Family[type_taxa2$Family == "Ulotrichales_X"] <- "Ulotrichales IS"
+type_taxa2$Family[type_taxa2$Family == "Ulvales−relatives_X"] <- "Ulvales−relatives IS"
+type_taxa2$Family[type_taxa2$Family == "Ulvophyceae_XX"] <- "Ulvophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Embryophyceae_XX"] <- "Embryophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Centroheliozoa_XXX"] <- "Centroheliozoa IS"
+type_taxa2$Family[type_taxa2$Family == "Cryptomonadales_X"] <- "Cryptomonadales IS"
+type_taxa2$Family[type_taxa2$Family == "Acanthoecida_X"] <- "Acanthoecida IS"
+type_taxa2$Family[type_taxa2$Family == "Glissomonadida_X"] <- "Glissomonadida IS"
+type_taxa2$Family[type_taxa2$Family == "Chrysophyceae_XX"] <- "Chrysophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Alveolata_NA"] <- "Alveolata IS"
+type_taxa2$Family[type_taxa2$Family == "Ciliophora_NA"] <- "Ciliophora IS"
+type_taxa2$Family[type_taxa2$Family == "Oligohymenophorea_NA"] <- "Oligohymenophorea IS"
+type_taxa2$Family[type_taxa2$Family == "Suctoria_NA"] <- "Suctoria IS"
+type_taxa2$Family[type_taxa2$Family == "Hypotrichia_NA"] <- "Hypotrichia IS"
+type_taxa2$Family[type_taxa2$Family == "Dinophyceae_NA"] <- "Dinophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Apusomonadidae_Group−1_XX"] <- "Apusomonadidae_Group−1 IS"
+type_taxa2$Family[type_taxa2$Family == "Ulvales-relatives_X"] <- "Ulvales-relatives IS"
+type_taxa2$Family[type_taxa2$Family == "Ulvophyceae_NA"] <- "Ulvophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Centroheliozoa_X_NA"] <- "Centroheliozoa IS"
+type_taxa2$Family[type_taxa2$Family == "Pterocystida_NA"] <- "Pterocystida IS"
+type_taxa2$Family[type_taxa2$Family == "Choanoflagellatea_NA"] <- "Choanoflagellatea IS"
+type_taxa2$Family[type_taxa2$Family == "Fungi_NA"] <- "Fungi IS"
+type_taxa2$Family[type_taxa2$Family == "Opisthokonta_NA"] <- "Opisthokonta IS"
+type_taxa2$Family[type_taxa2$Family == "Cercozoa_NA"] <- "Cercozoa IS"
+type_taxa2$Family[type_taxa2$Family == "Ochrophyta_NA"] <- "Ochrophyta IS"
+type_taxa2$Family[type_taxa2$Family == "Pseudofungi_NA"] <- "Pseudofungi IS"
+type_taxa2$Family[type_taxa2$Family == "Stramenopiles_NA"] <- "Stramenopiles IS"
+type_taxa2$Family[type_taxa2$Family == "MAST-12C_X"] <- "MAST-12C IS"
+type_taxa2$Family[type_taxa2$Family == "Peritrichia_2_NA"] <- "Peritrichia_2 IS"
+type_taxa2$Family[type_taxa2$Family == "Anoecales_X"] <- "Anoecales IS"
+type_taxa2$Family[type_taxa2$Family == "Spumellaria_NA"] <- "Spumellaria IS"
+type_taxa2$Family[type_taxa2$Family == "Phaeophyceae_XX"] <- "Phaeophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Filosa-Sarcomonadea_NA"] <- "Filosa-Sarcomonadea IS"
+type_taxa2$Family[type_taxa2$Family == "Bacillariophyta_X"] <- "Bacillariophyta IS"
+type_taxa2$Family[type_taxa2$Family == "Chlorarachnida_X"] <- "Chlorarachnida IS"
+type_taxa2$Family[type_taxa2$Family == "Pezizomycotina_NA"] <- "Pezizomycotina IS"
+type_taxa2$Family[type_taxa2$Family == "Apusomonadidae_Group-2B_X"] <- "Apusomonadidae_Group-2B IS"
+type_taxa2$Family[type_taxa2$Family == "Chlorophyceae_XX"] <- "Chlorophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Chlorophyta_NA"] <- "Chlorophyta IS"
+type_taxa2$Family[type_taxa2$Family == "Trebouxiophyceae_NA"] <- "Trebouxiophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Dasycladales_X"] <- "Dasycladales IS"
+type_taxa2$Family[type_taxa2$Family == "Acrochaetiales_X"] <- "Acrochaetiales IS"
+type_taxa2$Family[type_taxa2$Family == "Balbianiales_X"] <- "Balbianiales IS"
+type_taxa2$Family[type_taxa2$Family == "Batrachospermales_X"] <- "Batrachospermales IS"
+type_taxa2$Family[type_taxa2$Family == "Coleochaetophyceae_XX"] <- "Coleochaetophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Bacillariophyta_X_NA"] <- "Bacillariophyta IS"
+type_taxa2$Family[type_taxa2$Family == "Coccidiomorphea_NA"] <- "Coccidiomorphea IS"
+type_taxa2$Family[type_taxa2$Family == "Annelida_XX"] <- "Annelida IS"
+type_taxa2$Family[type_taxa2$Family == "Arthropoda_NA"] <- "Arthropoda IS"
+type_taxa2$Family[type_taxa2$Family == "Gastrotricha_XX"] <- "Gastrotricha IS"
+type_taxa2$Family[type_taxa2$Family == "Metazoa_NA"] <- "Metazoa IS"
+type_taxa2$Family[type_taxa2$Family == "Chromadorea_X"] <- "Chromadorea IS"
+type_taxa2$Family[type_taxa2$Family == "Enoplea_X"] <- "Enoplea IS"
+type_taxa2$Family[type_taxa2$Family == "Rotifera_XX"] <- "Rotifera IS"
+type_taxa2$Family[type_taxa2$Family == "Tardigrada_XX"] <- "Tardigrada IS"
+type_taxa2$Division[type_taxa2$Division == "Alveolata_NA"] <- "Alveolata IS"
+type_taxa2$Division[type_taxa2$Division == "Opisthokonta_NA"] <- "Opisthokonta IS"
+type_taxa2$Division[type_taxa2$Division == "Stramenopiles_NA"] <- "Stramenopiles IS"
+dat <- data.table(type_taxa2)
+dat$SD <- sd1$sd
+dat$Family <- as.character(dat$Family)
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Family"]
+dat[(median <= 0.1), Family := "Below Threshold"]
+dat[Family == "Below Threshold", Division := "Below Threshold"]
+dd.col <- distinctColorPalette(length(unique(dat$Division)))
+names(dd.col)  <- unique(dat$Division)
+colScale <- scale_fill_manual("Division", values = dd.col, drop=T, limits = levels(dat$Division))
+colScale_color <- scale_color_manual("Division", values = dd.col, drop=T, limits = levels(dat$Division))
+xx <- ggplot(dat, aes(x = factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Highborne Cay", "Shark Bay")), y = factor(Family, levels=euk_families))) + 
+  geom_point(aes(size = Abundance, fill=Division, color=Division), alpha = 0.5, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) +
+  labs( x= "Location", y = "Microeukaryotic Family", size = "Relative Abundance %", fill="Microeukaryotic Division") + theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Microeukaryotic Families across microbialite locations", subtitle = "with a median relative abundance above 0.1%") + geom_point(aes(size=Abundance-SD, fill = Division, color=Division), alpha = 1, shape=21) + geom_point(aes(size=Abundance+SD, fill = Division, color=Division), alpha = 0.20, shape=21) + colScale + colScale_color + guides(color = FALSE, fill = guide_legend(override.aes = list(size = 3) ) ) 
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_March2023/Figure2A.pdf", height =10, width=10)
+plot(xx)
+dev.off()
+metazoa <- psf_mb_meta_alt %>% subset_taxa(Division=="Metazoa")
+sd2 <- metazoa %>% 
+  tax_glom(taxrank = "Family") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} ) %>% 
+  psmelt() %>% group_by(OTU, Location)  %>%
+  summarize(sd = sd(Abundance, na.rm=FALSE)) %>% arrange(OTU)
+type_taxa <- metazoa %>% merge_samples("Location")
+type_taxa2 <- type_taxa %>%
+  tax_glom(taxrank = "Family") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )   %>% 
+  psmelt() %>% 
+  arrange(OTU) 
+type_taxa2$Family[type_taxa2$Family == "Tardigrada_XX"] <- "Tardigrada IS"
+type_taxa2$Family[type_taxa2$Family == "Rotifera_XX"] <- "Rotifera IS"
+type_taxa2$Family[type_taxa2$Family == "Nematoda_NA"] <- "Nematoda IS"
+type_taxa2$Family[type_taxa2$Family == "Enoplea_X"] <- "Enoplea IS"
+type_taxa2$Family[type_taxa2$Family == "Chromadorea_X"] <- "Chromadorea IS"
+type_taxa2$Family[type_taxa2$Family == "Chromadorea_NA"] <- "Chromadorea IS"
+type_taxa2$Family[type_taxa2$Family == "Metazoa_NA"] <- "Metazoa IS"
+type_taxa2$Family[type_taxa2$Family == "Gastrotricha_XX"] <- "Gastrotricha IS"
+type_taxa2$Family[type_taxa2$Family == "Craniata_XX"] <- "Craniata IS"
+type_taxa2$Family[type_taxa2$Family == "Hexapoda_NA"] <- "Hexapoda IS"
+type_taxa2$Family[type_taxa2$Family == "Arthropoda_NA"] <- "Arthropoda IS"
+type_taxa2$Family[type_taxa2$Family == "Annelida_XX"] <- "Annelida IS"
+type_taxa2$Class[type_taxa2$Class == "Metazoa_NA"] <- "Metazoa IS"
+dat2 <- data.table(type_taxa2)
+dat2$SD <- sd2$sd
+dat2$Class <- as.character(dat2$Class)
+dat2[, median := median(Abundance, na.rm = FALSE), 
+    by = "Family"]
+dat2[(median <= 0.1), Family := "Below Threshold"]
+dat2[Family == "Below Threshold", Class := "Below Threshold"]
+dd.class <- distinctColorPalette(length(unique(dat2$Class)))
+names(dd.class)  <- unique(dat2$Class)
+colScale_class <- scale_fill_manual("Class", values = dd.class, drop=T, limits = levels(dat2$Class))
+colScale_class_color <- scale_color_manual("Class", values = dd.class, drop=T, limits = levels(dat2$Class))
+xx_meta <- ggplot(dat2, aes(x = factor(Sample, levels=c("Kelly Lake", "Pavilion Lake","Highborne Cay", "Shark Bay")), y = factor(Family, levels=euk_families))) + 
+  geom_point(aes(size = Abundance, fill=Class, color= Class), alpha = 0.5, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) +
+  labs( x= "Location", y = "Metazoan Family", size = "Relative Abundance %", fill="Metazoan Class") + theme_bw()+ theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Metazoan Families across microbialite locations") + geom_point(aes(size=Abundance+SD, fill = Class, color=Class), alpha = 0.20, shape=21) + geom_point(aes(size=Abundance-SD, fill = Class, color=Class), alpha = 1, shape=21) + colScale_class + colScale_class_color + guides(color = FALSE, fill = guide_legend(override.aes = list(size = 3) ) ) 
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_March2023/Figure2B_meta.pdf", height =10, width=10)
+plot(xx_meta)
+dev.off()
+yy <- xx + theme(axis.title.x = element_blank(),axis.text.x = element_blank())
+p <- ggarrange(yy, xx_meta, nrow=2, heights = c(.6,.45), align="v", common.legend = FALSE, legend="right")
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_May2023/Figure2_Bubble.pdf", height =12, width=10)
+plot(p)
+dev.off()
+RA <- subset_taxa(ps_filtered.w.meta, (Class!="Embryophyceae"))
+RA <- subset_samples(RA, RA@sam_data$Location!='Lake Alchichica')
+RA <- subset_samples(RA, RA@sam_data$Location!='Green Lake')
+RA <- merge_samples(RA, "Location")
+glom <- tax_glom(RA, taxrank = 'Division') %>% transform_sample_counts(function(x) {x/sum(x)} )
+glom # should list # taxa as # phyla
+data <- psmelt(glom) # create dataframe from phyloseq object
+data$Division <- as.character(data$Division) #convert to character
+#simple way to rename phyla with < 1% abundance
+data$Division[data$Division != "Metazoa"] <- "Protists"
+#plot with condensed phyla into "< 1% abund" category
+data$Division <- factor(data$Division, levels = c("Protists", "Metazoa"))
+zz <- ggplot(data=data, aes(x=factor(Sample), y=Abundance, fill=Division)) + geom_bar(aes(), stat="identity", position="stack") + theme_classic() + scale_fill_viridis(discrete=TRUE, option="E" ) + guides(fill = guide_legend(reverse = F, keywidth = 1, keyheight = 1))  + scale_y_continuous(limits = c(0,1), expand = c(0,0)) + theme(axis.title.x = element_blank(),axis.text.x = element_blank())
+p <- ggarrange(yy,zz, xx_meta, nrow=3, heights = c(.6,0.1,.45), align="v", common.legend = FALSE, legend="right")
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_May2023/Figure2_Bubble_alt.pdf", height =14, width=7)
+plot(p)
+dev.off()
+```
+
+
+# Unifrac
+```{r}
+tree <- read.tree("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta et al. Microbialites_Euks/r_data/trees/fastree_microbialites.newick")
+phy_tree(psf_mb_metaplus) <- tree
+psf_mb_metaplus_alt <- subset_samples(psf_mb_metaplus, psf_mb_metaplus@sam_data$Location!='Lake Alchichica')
+psf_mb_metaplus_alt <- subset_samples(psf_mb_metaplus_alt, psf_mb_metaplus_alt@sam_data$Location!='Green Lake')
+ps_weighted_unifrac <- UniFrac(psf_mb_metaplus_alt, weighted = T)
+tr <- hclust(ps_weighted_unifrac)
+gt <- ggtree(tr, scale=0.09)
+gt$data
+info <- data.frame(psf_mb_metaplus_alt@sam_data)
+p <- ggtree(tr) %<+% info
+wuni <- p  + geom_tiplab(geom="text", size = 2, align=TRUE, linesize=.25, hjust="left", linetype=NA) + ggtitle("Weighted Unifrac of Microbialites") + geom_treescale(x = 0.1, y = -10, offset = 0.02, fontsize = 3)
+wuni
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_May2023/weighted_unifrac_distance.pdf", height =5, width=15)
+plot(wuni)
+dev.off()
+```
+
+# ANCOM-BC
+```{r}
+library(ANCOMBC)
+library(tidyverse)
+library(caret)
+library(DT)
+ps_ANCOM <- subset_taxa(psf_mb_metaplus, (Class!="Embryophyceae"))
+ps_ANCOM <- subset_samples(ps_ANCOM, ps_ANCOM@sam_data$Location!='Lake Alchichica')
+ps_ANCOM <- subset_samples(ps_ANCOM, ps_ANCOM@sam_data$Location!='Green Lake')
+sams <- data.frame(tax_table(ps_ANCOM))
+sams$Family[sams$Family == "Ulvales−relatives_X"] <- "Ulvales-relatives IS"
+sams$Family[sams$Family == "Ulvales-relatives_X"] <- "Ulvales-relatives IS"
+sams$Family[sams$Family == "Metazoa_NA"] <- "Metazoa IS"
+sams$Family[sams$Family == "Cladophorales_X"] <- "Cladophorales IS"
+sams$Family[sams$Family == "Enoplea_X"] <- "Enoplea IS"
+sams$Family[sams$Family == "Embryophyceae_XX"] <- "Embryophyceae IS"
+sams$Family[sams$Family == "Choanoflagellatea_NA"] <- "Choanoflagellatea IS"
+sams$Family[sams$Family == "Opisthokonta_NA"] <- "Opisthokonta IS"
+sams$Family[sams$Family == "Hypotrichia_NA"] <- "Hypotrichia IS"
+sams$Family[sams$Family == "Cercozoa_NA"] <- "Cercozoa IS"
+sams$Family[sams$Family == "Oligohymenophorea_NA"] <- "Oligohymenophorea IS"
+sams$Family[sams$Family == "Oligohymenophorea_XX"] <- "Oligohymenophorea IS"
+sams$Order[sams$Order == "Oligohymenophorea_X"] <- "Oligohymenophorea IS"
+sams$Order[sams$Order == "Oligohymenophorea_NA"] <- "Oligohymenophorea IS"
+sams$Family[sams$Family == "Chlorarachnida_X"] <- "Chlorarachnida IS"
+sams$Family[sams$Family == "Dasycladales_X"] <- "Dasycladales IS"
+sams$Family[sams$Family == "Dinophyceae_NA"] <- "Dinophyceae IS"
+sams$Family[sams$Family == "Pseudofungi_NA"] <- "Pseudofungi IS"
+sams$Family[sams$Family == "Annelida_XX"] <- "Annelida IS"
+sams$Family[sams$Family == "Alveolata_NA"] <- "Alveolata IS"
+sams$Family[sams$Family == "Stramenopiles_NA"] <- "Stramenopiles IS"
+sams$Family[sams$Family == "Bacillariophyta_X_NA"] <- "Bacillariophyta IS"
+sams$Family[sams$Family == "Chlorophyta_NA"] <- "Chlorophyta IS"
+sams$Family[sams$Family == "Ochrophyta"] <- "Ochrophyta IS"
+sams$Family[sams$Family == "Rotifera"] <- "Rotifera IS"
+sams$Family[sams$Family == "Chlorophyta"] <- "Chlorophyta IS"
+sams$Family[sams$Family == "Suctoria_NA"] <- "Suctoria IS"
+sams$Family[sams$Family == "Suctoria_X"] <- "Suctoria IS"
+sams$Family[sams$Family == "Chlorophyta_XXX"] <- "Chlorophyta IS"
+sams$Family[sams$Family == "Rotifera_XX"] <- "Rotifera IS"
+sams$Family[sams$Family == "Ochrophyta_NA"] <- "Ochrophyta IS"
+sams$Family[sams$Family == "Chlorophyta IS_1"] <- "Chlorophyta IS"
+tax_table(ps_ANCOM) <- as.matrix(sams)
+output_combined = ancombc2(data = ps_ANCOM, assay_name = "counts", tax_level = "Family",
+                  fix_formula = "SaltOrFresh", rand_formula = NULL,
+                  p_adj_method = "fdr", pseudo = 0, pseudo_sens = TRUE,
+                  prv_cut = 0.01, lib_cut = 0, s0_perc = 0.05,
+                  group = "SaltOrFresh", struc_zero = TRUE, neg_lb = FALSE,
+                  alpha = 0.05, n_cl = 2, verbose = TRUE,
+                  global = F, pairwise = F, dunnet = F, trend = F,
+                  iter_control = list(tol = 1e-2, max_iter = 20, 
+                                      verbose = TRUE),
+                  em_control = list(tol = 1e-5, max_iter = 100),
+                  lme_control = lme4::lmerControl(),
+                  mdfdr_control = list(fwer_ctrl_method = "fdr", B = 100))
+res_prim = output_combined$res
+res_prim
+res_prim <- subset(res_prim,taxon!='Chlorophyta IS_1' )
+df_res = res_prim %>% dplyr::filter(diff_SaltOrFreshsalt) %>%
+    dplyr::select(taxon, contains("SaltOrFresh")) 
+df_fig_res = df_res %>% 
+    arrange(desc(lfc_SaltOrFreshsalt
+)) %>%
+    mutate(direct = ifelse(lfc_SaltOrFreshsalt
+ > 0, "Positive LFC", "Negative LFC"))
+df_fig_res$taxon = factor(df_fig_res$taxon, levels = df_fig_res$taxon)
+df_fig_res$direct = factor(df_fig_res$direct, 
+                           levels = c("Positive LFC", "Negative LFC"))
+fig_res = df_fig_res %>%
+    ggplot(aes(x = taxon, y = lfc_SaltOrFreshsalt, fill = lfc_SaltOrFreshsalt)) + 
+    geom_bar(stat = "identity", width = 0.7, color = "black", 
+             position = position_dodge(width = 0.4)) +
+    geom_errorbar(aes(ymin = lfc_SaltOrFreshsalt - se_SaltOrFreshsalt, ymax = lfc_SaltOrFreshsalt + se_SaltOrFreshsalt), 
+                  width = 0.2, position = position_dodge(0.05), color = "black") + 
+    labs(x = "Eukaryotic Family", y = "Log fold change", 
+         title = "LFC in Saltwater vs Freshwater Microbialites", subtitle = "Of ANCOM-BC signficant taxa") + scale_fill_viridis_c(option = "plasma") + scale_color_viridis_c(option = "plasma") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor.y = element_blank()) + coord_flip()
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_March2023/Figure4_ANCOM2.pdf",  width=8, height=5)
+plot(fig_res)
+dev.off()
+write.csv(df_fig_res, "/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_March2023/Figure4_ANCOM.csv")
+```
+
+
+# Bubble Plot by Depths
+# Figure 3A: Kelly Depth
+```{r}
+Kelly <- subset_samples(psf_mb_alt,Location=="Kelly Lake")
+metazoa <- psf_mb_meta_alt %>% subset_taxa(Division=="Metazoa")
+Kelly_Meta <- subset_samples(metazoa,Location=="Kelly Lake")
+RA <- subset_taxa(ps_filtered.w.meta, (Class!="Embryophyceae"))
+RA <- subset_samples(RA, RA@sam_data$Location=='Kelly Lake')
+RA <- merge_samples(RA, "Depth")
+
+type_taxa <- Kelly %>% merge_samples("Depth")
+type_taxa2 <- type_taxa %>%
+  tax_glom(taxrank = "Family") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )   %>% 
+  psmelt() %>% 
+  arrange(OTU) 
+
+type_taxa2$Family[type_taxa2$Family == "Alveolata_NA"] <- "Alveolata IS"
+type_taxa2$Family[type_taxa2$Family == "Suctoria_NA"] <- "Suctoria IS"
+type_taxa2$Family[type_taxa2$Family == "Suctoria_X"] <- "Suctoria IS"
+type_taxa2$Family[type_taxa2$Family == "Hypotrichia_NA"] <- "Hypotrichia IS"
+type_taxa2$Family[type_taxa2$Family == "Chlorophyta_XXX"] <- "Chlorophyta IS"
+type_taxa2$Family[type_taxa2$Family == "Cladophorales_X"] <- "Cladophorales IS"
+type_taxa2$Family[type_taxa2$Family == "Ulotrichales_X"] <- "Ulotrichales IS"
+type_taxa2$Family[type_taxa2$Family == "Ulvales-relatives_X"] <- "Ulvales-relatives IS"
+type_taxa2$Family[type_taxa2$Family == "Acrochaetiales_X"] <- "Acrochaetiales IS"
+type_taxa2$Family[type_taxa2$Family == "Balbianiales_X"] <- "Balbianiales IS"
+type_taxa2$Family[type_taxa2$Family == "Batrachospermales_X"] <- "Batrachospermales IS"
+type_taxa2$Family[type_taxa2$Family == "Choanoflagellatea_NA"] <- "Choanoflagellatea IS"
+type_taxa2$Family[type_taxa2$Family == "Pezizomycotina_NA"] <- "Pezizomycotina IS"
+type_taxa2$Family[type_taxa2$Family == "Fungi_NA"] <- "Fungi IS"
+type_taxa2$Family[type_taxa2$Family == "Opisthokonta_NA"] <- "Opisthokonta IS"
+type_taxa2$Family[type_taxa2$Family == "Cercozoa_NA"] <- "Cercozoa IS"
+type_taxa2$Family[type_taxa2$Family == "Phaeophyceae_XX"] <- "Phaeophyceae IS" 
+type_taxa2$Family[type_taxa2$Family == "Embryophyceae_XX"] <- "Embryophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Annelida_XX"] <- "Annelida IS"
+type_taxa2$Family[type_taxa2$Family == "Arthropoda_NA"] <- "Arthropoda IS"
+type_taxa2$Family[type_taxa2$Family == "Gastrotricha_XX"] <- "Gastrotricha IS"
+type_taxa2$Family[type_taxa2$Family == "Metazoa_NA"] <- "Metazoa IS"
+type_taxa2$Family[type_taxa2$Family == "Chromadorea_X"] <- "Chromadorea IS"
+type_taxa2$Family[type_taxa2$Family == "Enoplea_X"] <- "Enoplea IS"
+type_taxa2$Family[type_taxa2$Family == "Tardigrada_XX"] <- "Tardigrada IS"
+type_taxa2$Family[type_taxa2$Family == "Glissomonadida_X"] <- "Glissomonadida IS"
+
+type_taxa2$Division[type_taxa2$Division == "Alveolata_NA"] <- "Alveolata IS"
+type_taxa2$Division[type_taxa2$Division == "Opisthokonta_NA"] <- "Opisthokonta IS"
+
+dat <- data.table(type_taxa2)
+dat$Family <- as.character(dat$Family)
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Family"]
+dat[(median <= 0.1), Family := "Below Threshold"]
+dat[Family == "Below Threshold", Division := "Below Threshold"]
+
+xx <- ggplot(dat, aes(x = Sample, y = factor(Family, levels=euk_families))) + 
+  geom_point(aes(size = Abundance, fill=Division), alpha = 1, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) +
+  labs( x= "Depth", y = "Microeukaryotic Family", size = "Relative Abundance %", fill="Division") + theme_bw() +  
+  colScale + colScale_color + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Microeukaryotic Families across microbialite depth at Kelly Lake",  subtitle = "with a median relative abundance above 0.1%") + guides(fill = guide_legend(override.aes = list(size = 3)))
+xx
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_May2023/Fig3A_KellyDepth_protists.pdf", height =10, width=10)
+plot(xx)
+dev.off()
+
+type_taxa3 <- Kelly_Meta %>% merge_samples("Depth")
+
+type_taxa4 <- type_taxa3 %>%
+  tax_glom(taxrank = "Family") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )   %>% 
+  psmelt() %>% 
+  arrange(OTU) 
+
+type_taxa4$Family[type_taxa4$Family == "Tardigrada_XX"] <- "Tardigrada IS"
+type_taxa4$Family[type_taxa4$Family == "Rotifera_XX"] <- "Rotifera IS"
+type_taxa4$Family[type_taxa4$Family == "Nematoda_NA"] <- "Nematoda IS"
+type_taxa4$Family[type_taxa4$Family == "Enoplea_X"] <- "Enoplea IS"
+type_taxa4$Family[type_taxa4$Family == "Chromadorea_X"] <- "Chromadorea IS"
+type_taxa4$Family[type_taxa4$Family == "Chromadorea_NA"] <- "Chromadorea IS"
+type_taxa4$Family[type_taxa4$Family == "Metazoa_NA"] <- "Metazoa IS"
+type_taxa4$Family[type_taxa4$Family == "Gastrotricha_XX"] <- "Gastrotricha IS"
+type_taxa4$Family[type_taxa4$Family == "Craniata_XX"] <- "Craniata IS"
+type_taxa4$Family[type_taxa4$Family == "Hexapoda_NA"] <- "Hexapoda IS"
+type_taxa4$Family[type_taxa4$Family == "Arthropoda_NA"] <- "Arthropoda IS"
+type_taxa4$Family[type_taxa4$Family == "Annelida_XX"] <- "Annelida IS"
+type_taxa4$Class[type_taxa4$Class == "Metazoa_NA"] <- "Metazoa IS"
+
+dat2 <- data.table(type_taxa4)
+dat2$Family <- as.character(dat2$Family)
+
+xx_meta <- ggplot(dat2, aes(x = factor(Sample), y = factor(Family, levels=euk_families))) + 
+  geom_point(aes(size = Abundance, fill=Class), alpha = 1, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) +
+  labs( x= "Location", y = "Metazoan Family", size = "Relative Abundance %", fill="Metazoan Class") + theme_bw() +  
+  colScale_class + colScale_class_color + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Metazoan Families across microbialite locations") + guides(fill = guide_legend(override.aes = list(size = 3)))
+xx_meta
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_May2023/Fig3A_KellyDepth_metazoa.pdf", height =10, width=10)
+plot(xx_meta)
+dev.off()
+
+
+yy <- xx + theme(axis.title.x = element_blank(),axis.text.x = element_blank())
+
+p <- ggarrange(yy, xx_meta, nrow=2, heights = c(.6,.25), align="v", common.legend = FALSE, legend="right")
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_May2023/Figure3A_KellyDepth.pdf", height =12, width=10)
+plot(p)
+dev.off()
+
+
+glom <- tax_glom(RA, taxrank = 'Division') %>% transform_sample_counts(function(x) {x/sum(x)} )
+glom # should list # taxa as # phyla
+data <- psmelt(glom) # create dataframe from phyloseq object
+data$Division <- as.character(data$Division) #convert to character
+
+#simple way to rename phyla with < 1% abundance
+data$Division[data$Division != "Metazoa"] <- "Protists"
+
+#plot with condensed phyla into "< 1% abund" category
+data$Division <- factor(data$Division, levels = c("Protists", "Metazoa"))
+zz <- ggplot(data=data, aes(x=factor(Sample), y=Abundance, fill=Division)) + geom_bar(aes(), stat="identity", position="stack") + theme_classic() +
+  scale_fill_viridis(discrete=TRUE, option="E" ) +
+  guides(fill = guide_legend(reverse = F, keywidth = 1, keyheight = 1))  + scale_y_continuous(limits = c(0,1), expand = c(0,0)) + theme(axis.title.x = element_blank(),axis.text.x = element_blank())
+zz
+
+p <- ggarrange(yy,zz, xx_meta, nrow=3, heights = c(.6,0.1,.45), align="v", common.legend = FALSE, legend="right")
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figuresMay2023/Figure3A_KellyDepth.pdf", height =14, width=10)
+plot(p)
+dev.off()
+```
+
+# Figure 3B: Pavilion Depth
+```{r}
+Pavilion <- subset_samples(psf_mb_alt,Location=="Pavilion Lake")
+metazoa <- psf_mb_meta_alt %>% subset_taxa(Division=="Metazoa")
+Pavilion_Meta <- subset_samples(metazoa,Location=="Pavilion Lake")
+RA <- subset_taxa(ps_filtered.w.meta, (Class!="Embryophyceae"))
+RA <- subset_samples(RA, RA@sam_data$Location=='Pavilion Lake')
+RA <- merge_samples(RA, "Depth")
+
+type_taxa <- Pavilion %>% merge_samples("Depth")
+
+type_taxa2 <- type_taxa %>%
+  tax_glom(taxrank = "Family") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )   %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+
+type_taxa2$Family[type_taxa2$Family == "Alveolata_NA"] <- "Alveolata IS"
+type_taxa2$Family[type_taxa2$Family == "Suctoria_NA"] <- "Suctoria IS"
+type_taxa2$Family[type_taxa2$Family == "Suctoria_X"] <- "Suctoria IS"
+type_taxa2$Family[type_taxa2$Family == "Hypotrichia_NA"] <- "Hypotrichia IS"
+type_taxa2$Family[type_taxa2$Family == "Chlorophyta_XXX"] <- "Chlorophyta IS"
+type_taxa2$Family[type_taxa2$Family == "Cladophorales_X"] <- "Cladophorales IS"
+type_taxa2$Family[type_taxa2$Family == "Ulotrichales_X"] <- "Ulotrichales IS"
+type_taxa2$Family[type_taxa2$Family == "Ulvales-relatives_X"] <- "Ulvales-relatives IS"
+type_taxa2$Family[type_taxa2$Family == "Acrochaetiales_X"] <- "Acrochaetiales IS"
+type_taxa2$Family[type_taxa2$Family == "Balbianiales_X"] <- "Balbianiales IS"
+type_taxa2$Family[type_taxa2$Family == "Batrachospermales_X"] <- "Batrachospermales IS"
+type_taxa2$Family[type_taxa2$Family == "Choanoflagellatea_NA"] <- "Choanoflagellatea IS"
+type_taxa2$Family[type_taxa2$Family == "Pezizomycotina_NA"] <- "Pezizomycotina IS"
+type_taxa2$Family[type_taxa2$Family == "Fungi_NA"] <- "Fungi IS"
+type_taxa2$Family[type_taxa2$Family == "Opisthokonta_NA"] <- "Opisthokonta IS"
+type_taxa2$Family[type_taxa2$Family == "Cercozoa_NA"] <- "Cercozoa IS"
+type_taxa2$Family[type_taxa2$Family == "Phaeophyceae_XX"] <- "Phaeophyceae IS" 
+type_taxa2$Family[type_taxa2$Family == "Embryophyceae_XX"] <- "Embryophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Annelida_XX"] <- "Annelida IS"
+type_taxa2$Family[type_taxa2$Family == "Arthropoda_NA"] <- "Arthropoda IS"
+type_taxa2$Family[type_taxa2$Family == "Gastrotricha_XX"] <- "Gastrotricha IS"
+type_taxa2$Family[type_taxa2$Family == "Metazoa_NA"] <- "Metazoa IS"
+type_taxa2$Family[type_taxa2$Family == "Chromadorea_X"] <- "Chromadorea IS"
+type_taxa2$Family[type_taxa2$Family == "Enoplea_X"] <- "Enoplea IS"
+type_taxa2$Family[type_taxa2$Family == "Tardigrada_XX"] <- "Tardigrada IS"
+type_taxa2$Family[type_taxa2$Family == "Glissomonadida_X"] <- "Glissomonadida IS"
+
+type_taxa2$Family[type_taxa2$Family == "Coleochaetophyceae_XX"] <- "Coleochaetophyceae IS"
+type_taxa2$Family[type_taxa2$Family == "Ulvophyceae_XX"] <- "Ulvophyceae IS"
+
+
+type_taxa2$Division[type_taxa2$Division == "Alveolata_NA"] <- "Alveolata IS"
+type_taxa2$Division[type_taxa2$Division == "Opisthokonta_NA"] <- "Opisthokonta IS"
+
+dat <- data.table(type_taxa2)
+dat$Family <- as.character(dat$Family)
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Family"]
+dat[(median <= 0.1), Family := "Below Threshold"]
+dat[Family == "Below Threshold", Division := "Below Threshold"]
+
+xx <- ggplot(dat, aes(x = Sample, y = factor(Family, levels=euk_families))) + 
+  geom_point(aes(size = Abundance, fill=Division), alpha = 1, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) +
+  labs( x= "Depth", y = "Microeukaryotic Family", size = "Relative Abundance %", fill="Division") + theme_bw() +  
+  colScale + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Microeukaryotic Families across microbialite depth at Pavilion Lake",  subtitle = "with a median relative abundance above 0.1%") + guides(fill = guide_legend(override.aes = list(size = 3) ) ) + theme(legend.position="none")
+xx
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_May2023/Fig3A_PavilionDepth_protists.pdf", height =10, width=10)
+plot(xx)
+dev.off()
+type_taxa3 <- Pavilion_Meta %>% merge_samples("Depth")
+type_taxa4 <- type_taxa3 %>%
+  tax_glom(taxrank = "Family") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )   %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+type_taxa4$Family[type_taxa4$Family == "Tardigrada_XX"] <- "Tardigrada IS"
+type_taxa4$Family[type_taxa4$Family == "Rotifera_XX"] <- "Rotifera IS"
+type_taxa4$Family[type_taxa4$Family == "Nematoda_NA"] <- "Nematoda IS"
+type_taxa4$Family[type_taxa4$Family == "Enoplea_X"] <- "Enoplea IS"
+type_taxa4$Family[type_taxa4$Family == "Chromadorea_X"] <- "Chromadorea IS"
+type_taxa4$Family[type_taxa4$Family == "Chromadorea_NA"] <- "Chromadorea IS"
+type_taxa4$Family[type_taxa4$Family == "Metazoa_NA"] <- "Metazoa IS"
+type_taxa4$Family[type_taxa4$Family == "Gastrotricha_XX"] <- "Gastrotricha IS"
+type_taxa4$Family[type_taxa4$Family == "Craniata_XX"] <- "Craniata IS"
+type_taxa4$Family[type_taxa4$Family == "Hexapoda_NA"] <- "Hexapoda IS"
+type_taxa4$Family[type_taxa4$Family == "Arthropoda_NA"] <- "Arthropoda IS"
+type_taxa4$Family[type_taxa4$Family == "Annelida_XX"] <- "Annelida IS"
+type_taxa4$Class[type_taxa4$Class == "Metazoa_NA"] <- "Metazoa IS"
+type_taxa4$Class[type_taxa4$Class == "Arthropoda_NA"] <- "Arthropoda IS"
+dat2 <- data.table(type_taxa4)
+dat2$Family <- as.character(dat2$Family)
+xx_meta <- ggplot(dat2, aes(x = factor(Sample), y = factor(Family, levels=euk_families))) + 
+  geom_point(aes(size = Abundance, fill=Class), alpha = 1, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) +
+  labs( x= "Location", y = "Metazoan Family", size = "Relative Abundance %", fill="Metazoan Class") + theme_bw() +  
+  colScale_class + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Metazoan Families across microbialite locations") + guides(fill = guide_legend(override.aes = list(size = 3))) + theme(legend.position="none")
+xx_meta
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_March2023/Fig3B_PavilionDepth_metazoa.pdf", height =10, width=10)
+plot(xx_meta)
+dev.off()
+yy <- xx + theme(axis.title.x = element_blank(),axis.text.x = element_blank())
+q <- ggarrange(yy, xx_meta, nrow=2, heights = c(.55,.45), align="v", common.legend = FALSE, legend="right")
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_May2023/Figure3B_PavilionDepth.pdf", height =12, width=10)
+plot(q)
+dev.off()
+glom <- tax_glom(RA, taxrank = 'Division') %>% transform_sample_counts(function(x) {x/sum(x)} )
+glom # should list # taxa as # phyla
+data <- psmelt(glom) # create dataframe from phyloseq object
+data$Division <- as.character(data$Division) #convert to character
+#simple way to rename phyla with < 1% abundance
+data$Division[data$Division != "Metazoa"] <- "Protists"
+#plot with condensed phyla into "< 1% abund" category
+data$Division <- factor(data$Division, levels = c("Protists", "Metazoa"))
+zz <- ggplot(data=data, aes(x=factor(Sample), y=Abundance, fill=Division)) + geom_bar(aes(), stat="identity", position="stack") + theme_classic() +
+  scale_fill_viridis(discrete=TRUE, option="E" ) +
+  guides(fill = guide_legend(reverse = TRUE, keywidth = 1, keyheight = 1))  + scale_y_continuous(limits = c(0,1), expand = c(0,0)) + theme(axis.title.x = element_blank(),axis.text.x = element_blank()) + theme(legend.position="none")
+zz
+q <- ggarrange(yy,zz, xx_meta, nrow=3, heights = c(.6,0.1,.45), align="v")
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_March2023/Figure3B_PavilionDepth_alt.pdf", height =12, width=10)
+plot(q)22
+dev.off()
+pq <- ggarrange(p,q, nrow=1, widths = c(.6,.5), common.legend = F, legend="right")
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures/figures_May2023/Figure3_Depths_alt.pdf", height =12, width=20)
+plot(pq)
+dev.off()
+```

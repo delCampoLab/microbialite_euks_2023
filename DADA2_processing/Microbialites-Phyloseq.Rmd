@@ -1,0 +1,1416 @@
+---
+title: "Microbialites-Phyloseq"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load packages, include=FALSE}
+library("phyloseq"); packageVersion("phyloseq")
+library("Biostrings"); packageVersion("Biostrings")
+library("ggplot2"); packageVersion("ggplot2")
+library("ALDEx2");packageVersion("ALDEx2")
+library("CoDaSeq");packageVersion("CoDaSeq")
+library("vegan"); packageVersion("vegan")
+library("viridis"); packageVersion("viridis")
+library("tidyr"); packageVersion("tidyr")
+library("plyr"); packageVersion("plyr")
+library("dplyr"); packageVersion("dplyr")
+library("scales"); packageVersion("scales")
+library("grid"); packageVersion("grid")
+library("reshape2"); packageVersion("reshape2")
+library("edgeR"); packageVersion("edgeR")
+library("tidyr"); packageVersion("tidyr")
+library("viridis"); packageVersion("viridis")
+library("gridExtra"); packageVersion("gridExtra")
+library("ape"); packageVersion("ape")
+library("microbiome"); packageVersion("microbiome")
+library("ggpubr"); packageVersion("ggpubr")
+library("knitr"); packageVersion("knitr")
+library("ggjoy"); packageVersion("ggjoy")
+library("ggtree"); packageVersion("ggtree")
+library("ggstance"); packageVersion("ggstance")
+library("phytools"); packageVersion("phytools")
+library("QsRutils"); packageVersion("QsRutils")
+library(MMUPHin); packageVersion("MMUPHin")
+library(magrittr); packageVersion("magrittr")
+library("ampvis2")
+if(!require("devtools"))
+  install.packages("devtools")
+devtools::source_gist("8d0ca4206a66be7ff6d76fc4ab8e66c6")
+packageVersion("ampvis2")
+```
+
+
+```{r Load Phyloseq Object, include=FALSE}
+SV <- read.table("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/DADA2-outputs/ASVs_counts.tsv", row.names = 1, check.names= FALSE, sep = "\t", header = TRUE)
+tax <-as.matrix(read.table("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/DADA2-outputs/ASVs_taxonomy-curated.txt", row.names = 1, header = TRUE, sep = "\t"))
+map <- read.table("/Volumes/GoogleDrive/My\ Drive/Stromatolites_Eukaryome/Eukaryote_microbiome/analysis/combined-metadata.txt", row.names = 1, sep ="\t", header = TRUE)
+tree <- read.tree(file = "/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/DADA2-outputs/tree.nw")
+
+#library("phylotools")
+#dat <- data.frame(read.table("/Volumes/GoogleDrive/My\ Drive/Stromatolites_Eukaryome/Eukaryote_microbiome/analysis/DADA2-outputs/fixtree.txt", header = FALSE, sep = "\t"))
+#tree2 <- sub.taxa.label(tree, dat)
+
+ps = phyloseq(otu_table(SV, taxa_are_rows=TRUE), 
+               sample_data(map), 
+               tax_table(tax), phy_tree(tree))
+ps
+```
+
+
+```{r filtering, echo=TRUE}
+ps_filtered.w.meta <- prune_samples(sample_sums(ps)>=250, ps)
+f1<- filterfun_sample(topf(0.99))
+wh1 <- genefilter_sample(ps_filtered.w.meta, f1, A=2)
+ps_filtered.w.meta <- prune_taxa(wh1, ps_filtered.w.meta)
+ps_filtered.w.meta
+
+ps_filtered <- subset_taxa(ps_filtered.w.meta, (Division!="Metazoa"| is.na(Division)))
+ps_filtered <- subset_taxa(ps_filtered, (Division!="Eukaryota_NA"| is.na(Division)))
+ps_filtered <- subset_taxa(ps_filtered, (Class!="Opisthokonta_NA"| is.na(Class)))
+ps_filtered
+```
+ 
+
+
+```{r}
+library(randomcoloR)
+n <- 50
+palette <- distinctColorPalette(n)
+c25 <- c(
+  "dodgerblue2", "#E31A1C", # red
+  "green4",
+  "#6A3D9A", # purple
+  "#FF7F00", # orange
+  "black", "gold1",
+  "skyblue2", "#FB9A99", # lt pink
+  "palegreen2",
+  "#CAB2D6", # lt purple
+  "#FDBF6F", # lt orange
+  "gray70", "khaki2",
+  "maroon", "orchid1", "deeppink1", "blue1", "steelblue4",
+  "darkturquoise", "green1", "yellow4", "yellow3",
+  "darkorange4", "brown"
+)
+```
+
+
+
+```{r}
+type_taxa <- ps_filtered %>% 
+  tax_glom(taxrank = "Division") %>% 
+  transform_sample_counts(function(x) {x/sum(x)} ) %>% 
+  psmelt() %>% 
+  arrange(Division) 
+
+p <- ggplot(type_taxa, aes(x = Sample, y = Abundance, fill = Division)) + 
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values=palette) +
+  guides(fill = guide_legend(reverse = TRUE, keywidth = 1, keyheight = 1)) +
+  ylab("Relative Abundance \n") +
+  ggtitle("Division Composition of Microbialites") + scale_y_continuous(limits = c(0,1), expand = c(0,0)) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + xlab("Sample")
+p
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/preliminary_figures/ra_phylum.pdf", height = 7, width=13)
+plot(p)
+dev.off()
+```
+## Only microbialite samples
+```{r}
+psf_mb<- subset_samples(ps_filtered, ps_filtered@sam_data$Environment2=='microbialite')
+psf_mb
+
+psf_mb_meta <- subset_samples(ps_filtered.w.meta, ps_filtered.w.meta@sam_data$Environment2=='microbialite')
+psf_mb_meta
+```
+
+```{r misc, include=FALSE}
+euk_classes_csv <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/DADA2-outputs/class_list.csv",header=F)
+euk_classes <- euk_classes_csv %>% pull(V1)
+euk_families_csv <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/DADA2-outputs/family_list.csv",header=F)
+euk_families <- euk_families_csv %>% pull(V1)
+euk_orders_csv <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/DADA2-outputs/order_list.csv",header=F)
+euk_orders <- euk_orders_csv %>% pull(V1)
+euk_genus_csv <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/DADA2-outputs/genus_list.csv",header=F)
+euk_genus <- euk_genus_csv %>% pull(V1)
+```
+
+```{r}
+bub <- merge_samples(psf_mb, "Location") ##Family of corals
+
+type_taxa <- bub %>% 
+  tax_glom(taxrank = "Order") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+xx <- ggplot(type_taxa, aes(x = factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y = factor(Order, levels=euk_orders))) + geom_point(aes(size = Abundance, fill=Division), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Location", y = "Eukaryotic Order", size = "Relative Abundance %", fill="Eukaryotic Division") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Eukaryotic Orders by Microbialite Location") 
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_microbialite_orders_location.pdf", height =20, width=10)
+plot(xx)
+dev.off()
+```
+
+
+```{r}
+bub <- merge_samples(psf_mb, "Location") ##Family of corals
+
+type_taxa <- bub %>% 
+  tax_glom(taxrank = "Order") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+
+library(data.table)
+# create dataframe from phyloseq object
+dat <- data.table(type_taxa)
+# convert Phylum to a character vector from a factor because R
+dat$Order <- as.character(dat$Order)
+# group dataframe by Phylum, calculate median rel. abundance
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Order"]
+# Change name to remainder of Phylum less than 2%
+dat[(median <= 0.01), Order := "Remainder"]
+
+xx <- ggplot(dat[Abundance > 0], aes(x = factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y = factor(Order, levels=euk_orders))) + geom_point(aes(size = Abundance, fill=Division), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Location", y = "Eukaryotic Order", size = "Relative Abundance %", fill="Eukaryotic Division") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Eukaryotic Orders by Microbialite Location", subtitle = "Abundance greater than 1%") 
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_microbialite_orders_location_others.pdf", height=10, width=10)
+plot(xx)
+dev.off()
+```
+
+```{r}
+bub <- merge_samples(psf_mb, "Location") ##Family of corals
+
+type_taxa <- bub %>% 
+  tax_glom(taxrank = "Family") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+
+library(data.table)
+# create dataframe from phyloseq object
+dat <- data.table(type_taxa)
+# convert Phylum to a character vector from a factor because R
+dat$Family <- as.character(dat$Family)
+# group dataframe by Phylum, calculate median rel. abundance
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Family"]
+# Change name to remainder of Phylum less than 2%
+dat[(median <= 0.01), Family := "Remainder"]
+
+xx <- ggplot(dat[Abundance > 0], aes(x = factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y = factor(Family, levels=euk_families))) + geom_point(aes(size = Abundance, fill=Division), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Location", y = "Eukaryotic Family", size = "Relative Abundance %", fill="Eukaryotic Division") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Eukaryotic Families by Microbialite Location", subtitle = "Abundance greater than 1%") 
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_microbialite_families_location_others.pdf", height=10, width=10)
+plot(xx)
+dev.off()
+```
+
+```{r}
+bub <- subset_taxa(psf_mb, (Class!="Eukaryota_NA"| is.na(Class)))
+bub <- subset_taxa(bub, (Class!="Opisthokonta_NA"| is.na(Class)))
+bub <- subset_taxa(bub, (Class!="Metazoa_NA"| is.na(Class)))
+
+
+bub <- merge_samples(bub, "Location") ##Family of corals
+
+type_taxa <- bub %>% 
+  tax_glom(taxrank = "Genus") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+
+library(data.table)
+# create dataframe from phyloseq object
+dat <- data.table(type_taxa)
+# convert Phylum to a character vector from a factor because R
+dat$Genus <- as.character(dat$Genus)
+# group dataframe by Phylum, calculate median rel. abundance
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Genus"]
+# Change name to remainder of Phylum less than 2%
+dat[(median <= 0.01), Genus := "Remainder"]
+
+xx <- ggplot(dat[Abundance > 0], aes(x = factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y = factor(Genus, levels=euk_genus))) + geom_point(aes(size = Abundance, fill=Division), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Location", y = "Eukaryotic Genus", size = "Relative Abundance %", fill="Eukaryotic Division") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Eukaryotic Genera by Microbialite Location", subtitle = "Abundance greater than 1%") 
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_microbialite_genera_location_others.pdf", height=10, width=10)
+plot(xx)
+dev.off()
+```
+
+
+```{r}
+bub <- merge_samples(psf_mb, "Location") ##Family of corals
+
+type_taxa <- bub %>% 
+  tax_glom(taxrank = "Order") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+
+library(data.table)
+# create dataframe from phyloseq object
+dat <- data.table(type_taxa)
+# convert Phylum to a character vector from a factor because R
+dat$Order <- as.character(dat$Order)
+# group dataframe by Phylum, calculate median rel. abundance
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Order"]
+# Change name to remainder of Phylum less than 2%
+dat[(median <= 0.01), Order := "Remainder"]
+
+xx <- ggplot(dat[Abundance > 0], aes(x = factor(Sample, levels = c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y = factor(Order, levels=euk_orders))) + geom_point(aes(size = Abundance, fill=Division), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Location", y = "Eukaryotic Order", size = "Relative Abundance %", fill="Eukaryotic Division") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Eukaryotic Orders by Microbialite Location", subtitle = "Abundance greater than 1%") 
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_microbialite_orders_location_others_ordered.pdf", height=10, width=10)
+plot(xx)
+dev.off()
+``` 
+
+
+
+```{r}
+bub <- merge_samples(psf_mb, "Salinity") ##Family of corals
+
+type_taxa <- bub %>% 
+  tax_glom(taxrank = "Order") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+
+library(data.table)
+# create dataframe from phyloseq object
+dat <- data.table(type_taxa)
+# convert Phylum to a character vector from a factor because R
+dat$Order <- as.character(dat$Order)
+# group dataframe by Phylum, calculate median rel. abundance
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Order"]
+# Change name to remainder of Phylum less than 2%
+dat[(median <= 0.01), Order := "Remainder"]
+
+xx <- ggplot(dat[Abundance > 0], aes(x = factor(Sample, levels=c("freshwater", "brackish", "open marine", "hypersaline")), y = factor(Order, levels=euk_orders))) + geom_point(aes(size = Abundance, fill=Division), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Salinity", y = "Eukaryotic Order", size = "Relative Abundance %", fill="Eukaryotic Division") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Eukaryotic Orders by Location Salinity", subtitle = "Abundance greater than 1%") 
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_microbialite_orders_salinity_others.pdf", height=10, width=10)
+plot(xx)
+dev.off()
+```
+
+
+```{r}
+bub <- merge_samples(psf_mb, "Venice") ##Family of corals
+
+type_taxa <- bub %>% 
+  tax_glom(taxrank = "Order") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+
+library(data.table)
+# create dataframe from phyloseq object
+dat <- data.table(type_taxa)
+# convert Phylum to a character vector from a factor because R
+dat$Order <- as.character(dat$Order)
+# group dataframe by Phylum, calculate median rel. abundance
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Order"]
+# Change name to remainder of Phylum less than 2%
+dat[(median <= 0.01), Order := "Remainder"]
+
+xx <- ggplot(dat[Abundance > 0], aes(x = factor(Sample, levels=c("Limnetic", "Oligohaline", "Mesohaline", "Polymixohaline", "Euhaline", "Hyperhaline")), y = factor(Order, levels=euk_orders))) + geom_point(aes(size = Abundance, fill=Division), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Salinity according to the Venice System", y = "Eukaryotic Order", size = "Relative Abundance %", fill="Eukaryotic Division") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Eukaryotic Orders by Location Salinity", subtitle = "Abundance greater than 1%") 
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_microbialite_orders_Venice_others.pdf", height=12, width=10)
+plot(xx)
+dev.off()
+```
+
+
+
+
+
+
+## Pavilion Depth Profile
+```{r}
+pav <- subset_samples(psf_mb, Location=="Pavilion Lake")
+pav <- subset_taxa(pav, Order!="Eukaryota_NA")
+pav <- subset_taxa(pav, Order!="Opisthokonta_NA")
+pav <- merge_samples(pav, "Depth")
+
+type_taxa <- pav %>% 
+  tax_glom(taxrank = "Order") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+
+library(data.table)
+# create dataframe from phyloseq object
+dat <- data.table(type_taxa)
+# convert Phylum to a character vector from a factor because R
+dat$Order <- as.character(dat$Order)
+# group dataframe by Phylum, calculate median rel. abundance
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Order"]
+# Change name to remainder of Phylum less than 2%
+dat[(median <= 0.01), Order := "Remainder"]
+
+xx <- ggplot(dat[Abundance > 0], aes(x = Sample, y = factor(Order, levels=euk_orders))) + geom_point(aes(size = Abundance, fill=Division), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Depth (m)", y = "Eukaryotic Order", size = "Relative Abundance %", fill="Eukaryotic Division") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Eukaryotic Orders at Pavilion Lake by Depth", subtitle = "Abundance greater than 1%") 
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_microbialite_orders_PL_Depth.pdf", height=10, width=10)
+plot(xx)
+dev.off()
+```
+```{r}
+pav <- subset_samples(psf_mb_meta, Location=="Pavilion Lake")
+pav <- merge_samples(pav, "Depth")
+
+type_taxa <- pav %>% 
+  tax_glom(taxrank = "Order") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+
+library(data.table)
+# create dataframe from phyloseq object
+dat <- data.table(type_taxa)
+# convert Phylum to a character vector from a factor because R
+dat$Order <- as.character(dat$Order)
+# group dataframe by Phylum, calculate median rel. abundance
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Order"]
+# Change name to remainder of Phylum less than 2%
+dat[(median <= 0.01), Order := "Remainder"]
+
+xx <- ggplot(dat[Abundance > 0], aes(x = Sample, y = factor(Order, levels=euk_orders))) + geom_point(aes(size = Abundance, fill=Division), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Depth (m)", y = "Eukaryotic Order", size = "Relative Abundance %", fill="Eukaryotic Division") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Eukaryotic Orders at Pavilion Lake by Depth\nIncluding Metazoa", subtitle = "Abundance greater than 1%") 
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_microbialite_orders_PL_Depth_metazoa.pdf", height=10, width=10)
+plot(xx)
+dev.off()
+```
+## Kelly Depth Profile
+```{r}
+kel <- subset_samples(psf_mb, Location=="Kelly Lake")
+kel <- subset_taxa(kel, Order!="Eukaryota_NA")
+kel <- subset_taxa(kel, Order!="Opisthokonta_NA")
+kel <- merge_samples(kel, "Depth")
+
+type_taxa <- kel %>% 
+  tax_glom(taxrank = "Order") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+
+library(data.table)
+# create dataframe from phyloseq object
+dat <- data.table(type_taxa)
+# convert Phylum to a character vector from a factor because R
+dat$Order <- as.character(dat$Order)
+# group dataframe by Phylum, calculate median rel. abundance
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Order"]
+# Change name to remainder of Phylum less than 2%
+dat[(median <= 0.01), Order := "Remainder"]
+
+xx <- ggplot(dat[Abundance > 0], aes(x = Sample, y = factor(Order, levels=euk_orders))) + geom_point(aes(size = Abundance, fill=Division), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Depth (m)", y = "Eukaryotic Order", size = "Relative Abundance %", fill="Eukaryotic Division") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Eukaryotic Orders at Kelly Lake by Depth", subtitle = "Abundance greater than 1%") 
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_microbialite_orders_KL_Depth.pdf", height=10, width=10)
+plot(xx)
+dev.off()
+```
+```{r}
+kel <- subset_samples(psf_mb_meta, Location=="Kelly Lake")
+kel <- subset_taxa(kel, Order!="Eukaryota_NA")
+kel <- subset_taxa(kel, Order!="Opisthokonta_NA")
+kel <- merge_samples(kel, "Depth")
+
+type_taxa <- kel %>% 
+  tax_glom(taxrank = "Order") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+
+library(data.table)
+# create dataframe from phyloseq object
+dat <- data.table(type_taxa)
+# convert Phylum to a character vector from a factor because R
+dat$Order <- as.character(dat$Order)
+# group dataframe by Phylum, calculate median rel. abundance
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Order"]
+# Change name to remainder of Phylum less than 2%
+dat[(median <= 0.01), Order := "Remainder"]
+
+xx <- ggplot(dat[Abundance > 0], aes(x = Sample, y = factor(Order, levels=euk_orders))) + geom_point(aes(size = Abundance, fill=Division), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Depth (m)", y = "Eukaryotic Order", size = "Relative Abundance %", fill="Eukaryotic Division") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Eukaryotic Orders at Kelly Lake by Depth\nIncluding Metazoa", subtitle = "Abundance greater than 1%") 
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_microbialite_orders_KL_Depth_metazoa_noEUKna.pdf", height=10, width=10)
+plot(xx)
+dev.off()
+```
+
+```{r}
+kel <- subset_samples(psf_mb_meta, Location=="Kelly Lake")
+
+kel <- merge_samples(kel, "Depth")
+
+type_taxa <- kel %>% 
+  tax_glom(taxrank = "Order") %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+
+library(data.table)
+# create dataframe from phyloseq object
+dat <- data.table(type_taxa)
+# convert Phylum to a character vector from a factor because R
+dat$Order <- as.character(dat$Order)
+# group dataframe by Phylum, calculate median rel. abundance
+dat[, median := median(Abundance, na.rm = FALSE), 
+    by = "Order"]
+# Change name to remainder of Phylum less than 2%
+dat[(median <= 0.01), Order := "Remainder"]
+
+xx <- ggplot(dat[Abundance > 0], aes(x = Sample, y = factor(Order, levels=euk_orders))) + geom_point(aes(size = Abundance, fill=Division), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Depth (m)", y = "Eukaryotic Order", size = "Relative Abundance %", fill="Eukaryotic Division") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Eukaryotic Orders at Kelly Lake by Depth\nIncluding Metazoa", subtitle = "Abundance greater than 1%") 
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_microbialite_orders_KL_Depth_metazoa.pdf", height=10, width=10)
+plot(xx)
+dev.off()
+```
+
+
+
+
+
+
+# Beta-diversity
+```{r}
+ps_clr <- microbiome::transform(ps_filtered, 'clr', shift = 1)
+psr_clr.ord <- ordinate(ps_clr, "RDA", "euclidean")
+PCA = plot_ordination(ps_clr, psr_clr.ord,
+                                shape="Sequencer",
+                                color="Environment2",
+                                title="Aitchison Distance PCA of Eukaryome") + theme_classic() + geom_point(aes(color = Environment2), alpha = 1, size = 3) + scale_colour_manual(values=c25) + labs(color="Environment2") + stat_ellipse()
+
+PCA
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/preliminary_figures/PCA_Sequencer_Sample.pdf",  width=10, height=6.5)
+plot(PCA)
+dev.off()
+```
+
+```{r}
+ps_clr <- microbiome::transform(ps_filtered, 'clr', shift = 1)
+psr_clr.ord <- ordinate(ps_clr, "RDA", "euclidean")
+PCA = plot_ordination(ps_clr, psr_clr.ord,
+                                shape="Sequencer",
+                                color="Location",
+                                title="Aitchison Distance PCA of Eukaryome") + theme_classic() + geom_point(aes(color = Location), alpha = 1, size = 3) + scale_colour_manual(values=c25) + labs(color="Location") + stat_ellipse()
+
+PCA
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/PCA_Sequencer_Location.pdf",  width=10, height=6.5)
+plot(PCA)
+dev.off()
+```
+
+```{r}
+ps_clr <- microbiome::transform(ps_filtered, 'clr', shift = 1)
+psr_clr.ord <- ordinate(ps_clr, "RDA", "euclidean")
+PCA = plot_ordination(ps_clr, psr_clr.ord,
+                                color="Sequencer",
+                                title="Aitchison Distance PCA of Eukaryome") + theme_classic() + geom_point(aes(color = Sequencer), alpha = 1, size = 3) + scale_colour_manual(values=c25) + labs(color="Sequencer") + stat_ellipse()
+
+PCA
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/PCA_Sequencer.pdf",  width=10, height=6.5)
+plot(PCA)
+dev.off()
+```
+
+```{r}
+ps_clr <- microbiome::transform(ps_filtered, 'clr', shift = 1)
+psr_clr.ord <- ordinate(ps_clr, "RDA", "euclidean")
+PCA = plot_ordination(ps_clr, psr_clr.ord,
+                                color="Location",
+                                title="Aitchison Distance PCA of Eukaryome") + theme_classic() + geom_point(aes(color = Location), alpha = 1, size = 3) + scale_colour_manual(values=c25) + labs(color="Location") + stat_ellipse()
+
+PCA
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/preliminary_figures/PCA_Location.pdf",  width=10, height=6.5)
+plot(PCA)
+dev.off()
+```
+
+```{r}
+ps_clr <- microbiome::transform(ps_filtered, 'clr', shift = 1)
+psr_clr.ord <- ordinate(ps_clr, "RDA", "euclidean")
+PCA = plot_ordination(ps_clr, psr_clr.ord,
+                                shape="Sequencer",
+                                color="Orientation",
+                                title="Aitchison Distance PCA of Eukaryome") + theme_classic() + geom_point(aes(color = Orientation), alpha = 1, size = 1) + scale_colour_manual(values=c25) + labs(color="Read Type") + stat_ellipse()
+
+PCA
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/preliminary_figures/PCA_Sequencer_ReadType.pdf",  width=10, height=6.5)
+plot(PCA)
+dev.off()
+
+```
+
+
+
+
+
+# Alpha Diversity
+```{r}
+library(microbiome)
+library(ggpubr)
+library(knitr)
+library(dplyr)
+
+ad <- prune_taxa(taxa_sums(psf_mb) > 0, psf_mb)
+tab <- microbiome::alpha(ad, index = "shannon")
+kable(head(tab))
+
+ps1.meta <- meta(ad)
+kable(head(ps1.meta))
+ps1.meta$Shannon <- tab$diversity_shannon 
+
+# create a list of pairwise comaprisons
+fam <- unique(ps1.meta$Location) # get the variables
+
+
+# make a pairwise list that we want to compare.
+fam.pairs <- combn(seq_along(fam), 2, simplify = FALSE, FUN = function(i)fam[i])
+
+print(fam.pairs)
+
+#ps1.meta$'' <- alpha(ps1, index = 'shannon')
+p1 <- ggboxplot(ps1.meta, x = "Location", y = "Shannon", order = c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay"),
+ add = "boxplot", fill = "Location") + theme_classic() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + scale_fill_viridis_d() + 
+  labs(fill='Location', title="Shannon Diversity of Microbialite Eukaryome", x="Location")
+
+p1 <- p1 + stat_compare_means(comparisons = fam.pairs) 
+print(p1)
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/alpha_location.pdf", width=8.5, height=8)
+plot(p1)
+dev.off()
+```
+
+
+```{r}
+ad <- prune_taxa(taxa_sums(psf_mb) > 0, psf_mb)
+tab <- microbiome::alpha(ad, index = "shannon")
+kable(head(tab))
+
+ps1.meta <- meta(ad)
+kable(head(ps1.meta))
+ps1.meta$Shannon <- tab$diversity_shannon 
+
+# create a list of pairwise comaprisons
+fam <- unique(ps1.meta$Venice) # get the variables
+
+
+# make a pairwise list that we want to compare.
+fam.pairs <- combn(seq_along(fam), 2, simplify = FALSE, FUN = function(i)fam[i])
+
+print(fam.pairs)
+
+#ps1.meta$'' <- alpha(ps1, index = 'shannon')
+p1 <- ggboxplot(ps1.meta, x = "Venice", y = "Shannon", order =c("Limnetic", "Oligohaline", "Mesohaline", "Polymixohaline", "Euhaline", "Hyperhaline"),
+ add = "boxplot", fill = "Venice") + theme_classic() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + scale_fill_viridis_d() + 
+  labs(fill='Venice System Ranking', title="Shannon Diversity of Microbialite Eukaryome", x="Salinity according to the Venice System")
+
+p1 <- p1 + stat_compare_means(comparisons = fam.pairs) 
+print(p1)
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/alpha_Venice.pdf", width=8.5, height=8)
+plot(p1)
+dev.off()
+```
+
+# Deeper Look
+```{r}
+bub <- merge_samples(psf_mb, "Location") ##Family of corals
+
+bub <- subset_taxa(bub, Class=="Pirsonia_Clade")
+
+type_taxa <- bub %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+xx <- ggplot(type_taxa, aes(x = factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y = OTU)) + geom_point(aes(size = Abundance, fill=Species), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Location", y = "Pirsonia Clade ASV", size = "Relative Abundance %\nwithin Clade", fill="Species") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Pirsonia Clade ASVs by Microbialite Location")
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_Pirsonia_ASVs_location.pdf", height =15, width=10)
+plot(xx)
+dev.off()
+```
+
+```{r}
+bub <- merge_samples(psf_mb, "Location") ##Family of corals
+
+bub <- subset_taxa(bub, Class=="Pirsonia_Clade")
+
+type_taxa <- bub %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+xx <- ggplot(type_taxa, aes(x = factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y = Species)) + geom_point(aes(size = Abundance, fill=Genus), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Location", y = "Pirsonia Clade Species", size = "Relative Abundance %\nwithin Clade", fill="Genus") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Pirsonia Clade Species by Microbialite Location")
+xx
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_Pirsonia_species_location.pdf", height =5, width=8)
+plot(xx)
+dev.off()
+```
+
+
+```{r}
+euk_genus_csv_och <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/DADA2-outputs/genus_list_ochrophyta.csv",header=F)
+euk_genus_och <- euk_genus_csv_och %>% pull(V1)
+
+bub <- merge_samples(psf_mb, "Location") ##Family of corals
+
+bub <- subset_taxa(bub, Division=="Ochrophyta")
+
+type_taxa <- bub %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+xx <- ggplot(type_taxa, aes(x = factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y = factor(Genus, levels=euk_genus_och))) + geom_point(aes(size = Abundance, fill=Family), alpha = 0.9, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Location", y = "Ochrophyta Species", size = "Relative Abundance %\nwithin Clade", fill="Family") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Ochrophytes by Microbialite Location")
+xx
+
+
+Location_RA <- merge_samples(psf_mb, "Location") ##Family of corals
+glom <- tax_glom(Location_RA, taxrank = 'Division') %>% transform_sample_counts(function(x) {x/sum(x)} )
+glom # should list # taxa as # phyla
+data <- psmelt(glom) # create dataframe from phyloseq object
+data$Division <- as.character(data$Division) #convert to character
+
+#simple way to rename phyla with < 1% abundance
+data$Division[data$Division !="Ochrophyta"] <- "Other Eukaryotes"
+
+#plot with condensed phyla into "< 1% abund" category
+zz <- ggplot(data=data, aes(x=factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y=Abundance, fill=Division)) + geom_bar(aes(), stat="identity", position="stack") + theme_classic() +
+  scale_fill_viridis(discrete=TRUE, option="E" ) +
+  guides(fill = guide_legend(reverse = TRUE, keywidth = 1, keyheight = 1))  + scale_y_continuous(limits = c(0,1), expand = c(0,0)) + theme(axis.title.x = element_blank(),axis.text.x = element_blank())
+zz
+
+p <- ggarrange(xx,zz, nrow=2, heights = c(10,1),align="v", common.legend = FALSE, legend="right")
+p
+
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_Ochrophyta_species_location.pdf", height =20, width=10)
+plot(p)
+dev.off()
+```
+
+```{r}
+euk_genus_csv_chl <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/DADA2-outputs/genus_list_chlorophyta.csv",header=F)
+euk_genus_chl <- euk_genus_csv_chl %>% pull(V1)
+
+
+bub <- merge_samples(psf_mb, "Location") ##Family of corals
+
+bub <- subset_taxa(bub, Division=="Chlorophyta")
+
+type_taxa <- bub %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+xx <- ggplot(type_taxa, aes(x = factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y = factor(Genus, levels=euk_genus_chl))) + geom_point(aes(size = Abundance, fill=Family), alpha = 1, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Location", y = "Chlorophyta Species", size = "Relative Abundance %\nwithin Clade", fill="Family") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Chlorophytes by Microbialite Location")
+xx
+
+
+Location_RA <- merge_samples(psf_mb, "Location") ##Family of corals
+glom <- tax_glom(Location_RA, taxrank = 'Division') %>% transform_sample_counts(function(x) {x/sum(x)} )
+glom # should list # taxa as # phyla
+data <- psmelt(glom) # create dataframe from phyloseq object
+data$Division <- as.character(data$Division) #convert to character
+
+#simple way to rename phyla with < 1% abundance
+data$Division[data$Division !="Chlorophyta"] <- "Other Eukaryotes"
+
+#plot with condensed phyla into "< 1% abund" category
+zz <- ggplot(data=data, aes(x=factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y=Abundance, fill=Division)) + geom_bar(aes(), stat="identity", position="stack") + theme_classic() +
+  scale_fill_viridis(discrete=TRUE, option="E" ) +
+  guides(fill = guide_legend(reverse = TRUE, keywidth = 1, keyheight = 1))  + scale_y_continuous(limits = c(0,1), expand = c(0,0)) + theme(axis.title.x = element_blank(),axis.text.x = element_blank())
+zz
+
+p <- ggarrange(xx,zz, nrow=2, heights = c(5,1),align="v", common.legend = FALSE, legend="right")
+p
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_Chlorophyta_genera_location.pdf", height =10, width=10)
+plot(p)
+dev.off()
+```
+
+```{r}
+Location_RA <- merge_samples(psf_mb, "Location") ##Family of corals
+
+glom <- tax_glom(Location_RA, taxrank = 'Division') %>% transform_sample_counts(function(x) {x/sum(x)} )
+glom # should list # taxa as # phyla
+data <- psmelt(glom) # create dataframe from phyloseq object
+data$Division <- as.character(data$Division) #convert to character
+
+#simple way to rename phyla with < 1% abundance
+data$Division[data$Division !="Chlorophyta"] <- "Other Eukaryotes"
+
+#plot with condensed phyla into "< 1% abund" category
+zz <- ggplot(data=data, aes(x=factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y=Abundance, fill=Division)) + geom_bar(aes(), stat="identity", position="stack") + theme_classic() +
+  scale_fill_viridis(discrete=TRUE, option="E" ) +
+  guides(fill = guide_legend(reverse = TRUE, keywidth = 1, keyheight = 1))  + scale_y_continuous(limits = c(0,1), expand = c(0,0)) + theme(axis.title.x = element_blank(),axis.text.x = element_blank())
+zz
+
+pdf(".pdf", width=10, height=5)
+plot(zz)
+dev.off()
+```
+
+```{r}
+euk_genus_csv_meta <- read.csv("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/DADA2-outputs/genus_list_metazoa.csv",header=F)
+euk_genus_meta <- euk_genus_csv_meta %>% pull(V1)
+
+bub <- merge_samples(psf_mb_meta, "Location") ##Family of corals
+
+bub <- subset_taxa(bub, Division=="Metazoa")
+
+type_taxa <- bub %>% 
+  transform_sample_counts(function(x) {x/sum(x)*100} )  
+type_taxa <- type_taxa %>% 
+  psmelt() %>% 
+  arrange(Abundance) 
+xx <- ggplot(type_taxa, aes(x = factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y = factor(Genus, levels=euk_genus_meta))) + geom_point(aes(size = Abundance, fill=Family), alpha = 1, shape = 21) + 
+  scale_size_continuous(limits = c(0.000001, 100), range = c(1,10), breaks = c(1,10,50,75)) + 
+  labs( x= "Location", y = "Metazoa Species", size = "Relative Abundance %\nwithin Clade", fill="Family") + theme_bw() +  
+  scale_fill_manual(values = palette) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Metazoans by Microbialite Location")
+xx
+
+Location_RA <- merge_samples(psf_mb_meta, "Location") ##Family of corals
+glom <- tax_glom(Location_RA, taxrank = 'Division') %>% transform_sample_counts(function(x) {x/sum(x)} )
+glom # should list # taxa as # phyla
+data <- psmelt(glom) # create dataframe from phyloseq object
+data$Division <- as.character(data$Division) #convert to character
+
+#simple way to rename phyla with < 1% abundance
+data$Division[data$Division !="Metazoa"] <- "Other Eukaryotes"
+
+#plot with condensed phyla into "< 1% abund" category
+zz <- ggplot(data=data, aes(x=factor(Sample, levels=c("Kelly Lake", "Pavilion Lake", "Green Lake", "Lake Alchichica", "Highborne Cay", "Shark Bay")), y=Abundance, fill=Division)) + geom_bar(aes(), stat="identity", position="stack") + theme_classic() +
+  scale_fill_viridis(discrete=TRUE, option="E" ) +
+  guides(fill = guide_legend(reverse = TRUE, keywidth = 1, keyheight = 1))  + scale_y_continuous(limits = c(0,1), expand = c(0,0)) + theme(axis.title.x = element_blank(),axis.text.x = element_blank())
+zz
+
+p <- ggarrange(xx,zz, nrow=2, heights = c(10,1),align="v", common.legend = FALSE, legend="right")
+p
+
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/bub_Metazoa_species_location.pdf", height =15, width=10)
+plot(p)
+dev.off()
+```
+
+```{r}
+library(SpiecEasi)
+library(igraph)
+library(phyloseq)
+se.mb.psf_mb <- spiec.easi(psf_mb, method='mb', lambda.min.ratio=1e-2,
+                           nlambda=20, pulsar.params=list(rep.num=50))
+save(se.mb.psf_mb, file="/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/se_mb_psf_mb.rds")
+
+ig2.mb <- adj2igraph(getRefit(se.mb.psf_mb),  vertex.attr=list(name=taxa_names(psf_mb)))
+plot_network(ig2.mb, psf_mb, type='taxa', color="Rank3")
+
+```
+
+```{r}
+library(NetCoMi)
+net_single <- netConstruct(psf_mb,
+                           filtTax = "highestFreq",
+                           filtTaxPar = list(highestFreq = 100),
+                           filtSamp = "totalReads",
+                           filtSampPar = list(totalReads = 250),
+                           measure = "spring",
+                           measurePar = list(nlambda=10, rep.num=10),
+                           normMethod = "none", 
+                           zeroMethod = "none",
+                           sparsMethod = "none", 
+                           dissFunc = "signed",
+                           verbose = 3,
+                           seed = 123456)
+
+props_single <- netAnalyze(net_single, 
+                           centrLCC = TRUE,
+                           clustMethod = "cluster_fast_greedy",
+                           hubPar = "eigenvector",
+                           weightDeg = FALSE, normDeg = FALSE)
+
+#?summary.microNetProps
+summary(props_single, numbNodes = 5L)
+
+p <- plot(props_single, 
+          nodeColor = "cluster", 
+          nodeSize = "eigenvector",
+          title1 = "Network on OTU level with SPRING associations", 
+          showTitle = TRUE,
+          cexTitle = 2.3)
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated association:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("#009900","red"), 
+       bty = "n", horiz = TRUE)
+```
+
+```{r}
+amgut_genus <- phyloseq::tax_glom(psf_mb, taxrank = "Genus")
+taxtab <- amgut_genus@tax_table@.Data
+
+# Find undefined taxa (in this data set, unknowns occur only up to Rank5)
+miss_f <- which(taxtab[, "Family"] == "f__")
+miss_g <- which(taxtab[, "Genus"] == "g__")
+
+# Number unspecified genera
+taxtab[miss_f, "Family"] <- paste0("f__", 1:length(miss_f))
+taxtab[miss_g, "Genus"] <- paste0("g__", 1:length(miss_g))
+
+# Find duplicate genera
+dupl_g <- which(duplicated(taxtab[, "Genus"]) |
+                  duplicated(taxtab[, "Genus"], fromLast = TRUE))
+
+for(i in seq_along(taxtab)){
+  # The next higher non-missing rank is assigned to unspecified genera
+  if(i %in% miss_f && i %in% miss_g){
+    taxtab[i, "Genus"] <- paste0(taxtab[i, "Genus"], "(", taxtab[i, "Order"], ")")
+  } else if(i %in% miss_g){
+    taxtab[i, "Genus"] <- paste0(taxtab[i, "Genus"], "(", taxtab[i, "Family"], ")")
+  }
+  
+  # Family names are added to duplicate genera
+  if(i %in% dupl_g){
+    taxtab[i, "Genus"] <- paste0(taxtab[i, "Genus"], "(", taxtab[i, "Family"], ")")
+  }
+}
+
+amgut_genus@tax_table@.Data <- taxtab
+rownames(amgut_genus@otu_table@.Data) <- taxtab[, "Genus"]
+
+# Network construction and analysis
+net_single3 <- netConstruct(amgut_genus, 
+                            filtTax = "highestFreq",
+                           filtTaxPar = list(highestFreq = 100),
+                           filtSamp = "totalReads",
+                           filtSampPar = list(totalReads = 250),
+                           measure = "spring",
+                           measurePar = list(nlambda=10, rep.num=10),
+                           normMethod = "none", 
+                           zeroMethod = "none",
+                           sparsMethod = "none", 
+                           dissFunc = "signed",
+                           verbose = 3,
+                           seed = 123456)
+
+props_single3 <- netAnalyze(net_single3, clustMethod = "cluster_fast_greedy")
+
+# Compute layout
+graph3 <- igraph::graph_from_adjacency_matrix(net_single3$adjaMat1, weighted = TRUE)
+lay_fr <- igraph::layout_with_fr(graph3)
+# Note that row names of the layout matrix must match the node names
+rownames(lay_fr) <- rownames(net_single3$adjaMat1)
+
+plot(props_single3,
+     layout = lay_fr,
+     shortenLabels = "simple",
+     labelLength = 10,
+     nodeSize = "fix",
+     nodeColor = "gray",
+     cexNodes = 0.8,
+     cexHubs = 1.1,
+     cexLabels = 1.2,
+     title1 = "Network on genus level with SPRING", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("#009900","red"), 
+       bty = "n", horiz = TRUE)
+
+set.seed(123456)
+graph3 <- igraph::graph_from_adjacency_matrix(net_single3$adjaMat1, weighted = TRUE)
+lay_fr <- igraph::layout_with_fr(graph3)
+rownames(lay_fr) <- rownames(net_single3$adjaMat1)
+
+plot(props_single3,
+     layout = "layout_with_fr",
+     shortenLabels = "simple",
+     labelLength = 10,
+     charToRm = "g__",
+     labelScale = FALSE,
+     rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeColor = "cluster",
+     hubBorderCol = "darkgray",
+     cexNodes = 2,
+     cexLabels = 1.5,
+     cexHubLabels = 2,
+     title1 = "Network on genus level with SPRING correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("#009900","red"), 
+       bty = "n", horiz = TRUE)
+
+
+# Get phyla names from the taxonomic table created before
+phyla <- as.factor(gsub("d__", "", taxtab[, "Division"]))
+names(phyla) <- taxtab[, "Genus"]
+#table(phyla)
+
+# Define phylum colors
+phylcol <- palette
+
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/Network1.pdf", height =20, width=60)
+plot(props_single3,
+     layout = "spring",
+     repulsion = 0.84,
+     shortenLabels = "none",
+     charToRm = "g__",
+     labelScale = FALSE,
+     rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeSizeSpread = 4,
+     nodeColor = "feature", 
+     featVecCol = phyla, 
+     colorVec =  phylcol,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     edgeTranspLow = 0,
+     edgeTranspHigh = 40,
+     cexNodes = 2,
+     cexLabels = 2,
+     cexHubLabels = 2.5,
+     title1 = "Network on genus level with SPRING correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+# Colors used in the legend should be equally transparent as in the plot
+phylcol_transp <- NetCoMi:::colToTransp(phylcol, 60)
+
+legend(-1.2, 1.2, cex = 2, pt.cex = 2.5, title = "Division:", 
+       legend=levels(phyla), col = phylcol_transp, bty = "n", pch = 16) 
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+
+dev.off()
+
+
+```
+
+```{r}
+amgut_order <- phyloseq::tax_glom(psf_mb, taxrank = "Order")
+taxtab <- amgut_order@tax_table@.Data
+
+# Find undefined taxa (in this data set, unknowns occur only up to Rank5)
+miss_f <- which(taxtab[, "Class"] == "f__")
+miss_g <- which(taxtab[, "Order"] == "g__")
+
+# Number unspecified genera
+taxtab[miss_f, "Class"] <- paste0("f__", 1:length(miss_f))
+taxtab[miss_g, "Order"] <- paste0("g__", 1:length(miss_g))
+
+# Find duplicate genera
+dupl_g <- which(duplicated(taxtab[, "Order"]) |
+                  duplicated(taxtab[, "Order"], fromLast = TRUE))
+
+for(i in seq_along(taxtab)){
+  # The next higher non-missing rank is assigned to unspecified genera
+  if(i %in% miss_f && i %in% miss_g){
+    taxtab[i, "Order"] <- paste0(taxtab[i, "Order"], "(", taxtab[i, "Order"], ")")
+  } else if(i %in% miss_g){
+    taxtab[i, "Order"] <- paste0(taxtab[i, "Order"], "(", taxtab[i, "Class"], ")")
+  }
+  
+  # Class names are added to duplicate genera
+  if(i %in% dupl_g){
+    taxtab[i, "Order"] <- paste0(taxtab[i, "Order"], "(", taxtab[i, "Class"], ")")
+  }
+}
+
+amgut_order@tax_table@.Data <- taxtab
+rownames(amgut_order@otu_table@.Data) <- taxtab[, "Order"]
+
+# Network construction and analysis
+net_single3 <- netConstruct(amgut_order, 
+                            filtTax = "highestFreq",
+                           filtTaxPar = list(highestFreq = 100),
+                           filtSamp = "totalReads",
+                           filtSampPar = list(totalReads = 250),
+                           measure = "spring",
+                           measurePar = list(nlambda=10, rep.num=10),
+                           normMethod = "none", 
+                           zeroMethod = "none",
+                           sparsMethod = "none", 
+                           dissFunc = "signed",
+                           verbose = 3,
+                           seed = 123456)
+
+props_single3 <- netAnalyze(net_single3, clustMethod = "cluster_fast_greedy")
+
+# Compute layout
+graph3 <- igraph::graph_from_adjacency_matrix(net_single3$adjaMat1, weighted = TRUE)
+lay_fr <- igraph::layout_with_fr(graph3)
+# Note that row names of the layout matrix must match the node names
+rownames(lay_fr) <- rownames(net_single3$adjaMat1)
+
+plot(props_single3,
+     layout = lay_fr,
+     shortenLabels = "simple",
+     labelLength = 10,
+     nodeSize = "fix",
+     nodeColor = "gray",
+     cexNodes = 0.8,
+     cexHubs = 1.1,
+     cexLabels = 1.2,
+     title1 = "Network on Order level with SPRING", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("#009900","red"), 
+       bty = "n", horiz = TRUE)
+
+set.seed(123456)
+graph3 <- igraph::graph_from_adjacency_matrix(net_single3$adjaMat1, weighted = TRUE)
+lay_fr <- igraph::layout_with_fr(graph3)
+rownames(lay_fr) <- rownames(net_single3$adjaMat1)
+
+plot(props_single3,
+     layout = "layout_with_fr",
+     shortenLabels = "simple",
+     labelLength = 10,
+     charToRm = "g__",
+     labelScale = FALSE,
+     rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeColor = "cluster",
+     hubBorderCol = "darkgray",
+     cexNodes = 2,
+     cexLabels = 1.5,
+     cexHubLabels = 2,
+     title1 = "Network on Order level with SPRING correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("#009900","red"), 
+       bty = "n", horiz = TRUE)
+
+
+# Get phyla names from the taxonomic table created before
+phyla <- as.factor(gsub("d__", "", taxtab[, "Division"]))
+names(phyla) <- taxtab[, "Order"]
+#table(phyla)
+
+# Define phylum colors
+phylcol <- palette
+
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/Network2.pdf", height =20, width=60)
+plot(props_single3,
+     layout = "spring",
+     repulsion = 0.84,
+     shortenLabels = "none",
+     charToRm = "g__",
+     labelScale = FALSE,
+rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeSizeSpread = 4,
+     nodeColor = "feature", 
+     featVecCol = phyla, 
+     colorVec =  phylcol,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     edgeTranspLow = 0,
+     edgeTranspHigh = 40,
+     cexNodes = 2,
+     cexLabels = 2,
+     cexHubLabels = 2.5,
+     title1 = "Network on Order level with SPRING correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+# Colors used in the legend should be equally transparent as in the plot
+phylcol_transp <- NetCoMi:::colToTransp(phylcol, 60)
+
+legend(-1.2, 1.2, cex = 2, pt.cex = 2.5, title = "Division:", 
+       legend=levels(phyla), col = phylcol_transp, bty = "n", pch = 16) 
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+
+dev.off()
+
+
+```
+
+
+```{r}
+library(NetCoMi)
+amgut_order <- phyloseq::tax_glom(psf_mb, taxrank = "Order")
+
+salt_split <- metagMisc::phyloseq_sep_variable(amgut_order, 
+                                                "SaltOrFresh")
+
+taxtab <- salt_split$freshwater@tax_table@.Data
+
+# Find undefined taxa (in this data set, unknowns occur only up to Rank5)
+miss_f <- which(taxtab[, "Class"] == "f__")
+miss_g <- which(taxtab[, "Order"] == "g__")
+
+# Number unspecified genera
+taxtab[miss_f, "Class"] <- paste0("f__", 1:length(miss_f))
+taxtab[miss_g, "Order"] <- paste0("g__", 1:length(miss_g))
+
+# Find duplicate genera
+dupl_g <- which(duplicated(taxtab[, "Order"]) |
+                  duplicated(taxtab[, "Order"], fromLast = TRUE))
+
+for(i in seq_along(taxtab)){
+  # The next higher non-missing rank is assigned to unspecified genera
+  if(i %in% miss_f && i %in% miss_g){
+    taxtab[i, "Order"] <- paste0(taxtab[i, "Order"], "(", taxtab[i, "Order"], ")")
+  } else if(i %in% miss_g){
+    taxtab[i, "Order"] <- paste0(taxtab[i, "Order"], "(", taxtab[i, "Class"], ")")
+  }
+  
+  # Class names are added to duplicate genera
+  if(i %in% dupl_g){
+    taxtab[i, "Order"] <- paste0(taxtab[i, "Order"], "(", taxtab[i, "Class"], ")")
+  }
+}
+
+salt_split$freshwater@tax_table@.Data <- taxtab
+rownames(salt_split$freshwater@otu_table@.Data) <- taxtab[, "Order"]
+
+
+taxtab <- salt_split$salt@tax_table@.Data
+
+# Find undefined taxa (in this data set, unknowns occur only up to Rank5)
+miss_f <- which(taxtab[, "Class"] == "f__")
+miss_g <- which(taxtab[, "Order"] == "g__")
+
+# Number unspecified genera
+taxtab[miss_f, "Class"] <- paste0("f__", 1:length(miss_f))
+taxtab[miss_g, "Order"] <- paste0("g__", 1:length(miss_g))
+
+# Find duplicate genera
+dupl_g <- which(duplicated(taxtab[, "Order"]) |
+                  duplicated(taxtab[, "Order"], fromLast = TRUE))
+
+for(i in seq_along(taxtab)){
+  # The next higher non-missing rank is assigned to unspecified genera
+  if(i %in% miss_f && i %in% miss_g){
+    taxtab[i, "Order"] <- paste0(taxtab[i, "Order"], "(", taxtab[i, "Order"], ")")
+  } else if(i %in% miss_g){
+    taxtab[i, "Order"] <- paste0(taxtab[i, "Order"], "(", taxtab[i, "Class"], ")")
+  }
+  
+  # Class names are added to duplicate genera
+  if(i %in% dupl_g){
+    taxtab[i, "Order"] <- paste0(taxtab[i, "Order"], "(", taxtab[i, "Class"], ")")
+  }
+}
+
+salt_split$salt@tax_table@.Data <- taxtab
+rownames(salt_split$salt@otu_table@.Data) <- taxtab[, "Order"]
+
+net_salt <- netConstruct(data = salt_split$freshwater, 
+                           data2 = salt_split$salt,  
+                           filtTax = "highestFreq",
+                           filtTaxPar = list(highestFreq = 50),
+                           measure = "spieceasi",
+                           normMethod = "none", 
+                           zeroMethod = "none",
+                           sparsMethod = "none", 
+                           dissFunc = "signed",
+                           verbose = 3,
+                           seed = 123456)
+props_salt <- netAnalyze(net_salt, 
+                           centrLCC = FALSE,
+                           avDissIgnoreInf = TRUE,
+                           sPathNorm = FALSE,
+                           clustMethod = "cluster_fast_greedy",
+                           hubPar = c("degree", "between", "closeness"),
+                           hubQuant = 0.9,
+                           lnormFit = TRUE,
+                           normDeg = FALSE,
+                           normBetw = FALSE,
+                           normClose = FALSE,
+                           normEigen = FALSE)
+summary(props_salt)
+graph3 <- igraph::graph_from_adjacency_matrix(net_salt$adjaMat1, weighted = TRUE)
+lay_fr <- igraph::layout_with_fr(graph3)
+# Note that row names of the layout matrix must match the node names
+rownames(lay_fr) <- rownames(net_salt$adjaMat1)
+
+
+# Get phyla names from the taxonomic table created before
+phyla <- as.factor(gsub("d__", "", taxtab[, "Division"]))
+names(phyla) <- taxtab[, "Order"]
+#table(phyla)
+
+# Define phylum colors
+phylcol <- palette
+
+
+pdf("/Volumes/GoogleDrive/.shortcut-targets-by-id/1_rgzpaGQoCknwydgsYLBV6EhzOiOXdFP/Bonacolta\ et\ al.\ Microbialites_Euks/figures_round2/Network_Comparison1.pdf", height =20, width=60)
+plot(props_salt, 
+     sameLayout = TRUE, 
+     layoutGroup = 1,
+     repulsion = 0.84,
+     shortenLabels = "none",
+     charToRm = "g__",
+     labelScale = FALSE,
+     rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeSizeSpread = 4,
+     nodeColor = "feature", 
+     featVecCol = phyla, 
+     colorVec =  phylcol,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     edgeTranspLow = 0,
+     edgeTranspHigh = 40,
+     cexNodes = 2,
+     cexLabels = 2,
+     cexHubLabels = 2.5,
+     groupNames = c("Freshwater", "Saltwater"),
+     hubBorderCol  = "gray40")
+
+phylcol_transp <- NetCoMi:::colToTransp(phylcol, 60)
+
+legend(-1.2, 1.2, cex = 2, pt.cex = 2.5, title = "Division:", 
+       legend=levels(phyla), col = phylcol_transp, bty = "n", pch = 16) 
+
+legend("bottom", title = "estimated association:", legend = c("+","-"), 
+       col = c("#009900","red"), inset = 0.02, cex = 4, lty = 1, lwd = 4, 
+       bty = "n", horiz = TRUE)
+dev.off()
+```
+
+

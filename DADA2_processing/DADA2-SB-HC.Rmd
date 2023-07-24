@@ -1,0 +1,66 @@
+---
+title: "Shark Bay & Highborne Cay 18S"
+author: "Anthony Bonacolta"
+date: "2/22/2021"
+output: html_document
+---
+```{r setup, include=FALSE}
+.libPaths( c( "~/R_libs" , .libPaths() ) )
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{bash}
+ls *.fastq | cut -f 1-2 -d "_" > samples
+```
+
+
+## This study used TA-Reuk454FWD1: 	5'-CCAGCA(G/C)C(C/T)GCGGTAATTCC-3'  (V4 region, S. cerevisiae position 565-584) = 5'-CCAGCASCYGCGGTAATTCC-3'
+```{bash}
+for sample in $(cat samples)
+do
+
+    echo "On sample: $sample"
+
+    cutadapt -a CCAGCASCYGCGGTAATTCC...GGAATTACCGCRGSTGCTGG --discard-untrimmed -o ${sample}.trimmed.fastq ${sample} >> cutadapt_primer_trimming_stats.txt 2>&1
+
+done
+```
+
+
+# DADA2
+```{r}
+library(dada2); packageVersion("dada2")
+path <- "/Volumes/GoogleDrive/My Drive/Stromatolites_Eukaryome/Eukaryote_microbiome/raw-data/Public-data/SB-HC" # CHANGE ME to the directory containing the fastq files after unzipping.
+list.files(path)
+```
+
+```{r}
+fnFs <- sort(list.files(path, pattern=".fastq.trimmed.fastq", full.names = TRUE))
+sample.names <- sapply(strsplit(basename(fnFs), ".fastq.trimmed.fastq"), `[`, 1)
+plotQualityProfile(fnFs[1:3])
+```
+
+```{r}
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq"))
+names(filtFs) <- sample.names
+out <- filterAndTrim(fnFs, filtFs, trimLeft=10, maxLen=600, minLen=100, 
+                     maxN=0, maxEE=2,compress=FALSE, truncQ=2, rm.phix=TRUE, multithread=TRUE)
+head(out)
+errF <- learnErrors(filtFs, multithread=2)
+plotErrors(errF, nominalQ=TRUE)
+derepFs <- derepFastq(filtFs)
+sam.names <- sapply(strsplit(basename(filtFs), "_F_filt.fastq"), `[`, 1)
+names(derepFs) <- sam.names
+ddFs <- dada(derepFs, err=NULL, selfConsist=TRUE, HOMOPOLYMER_GAP_PENALTY=-1, BAND_SIZE=32)
+plotErrors(ddFs)
+dadaFs <- dada(derepFs, err=ddFs[[1]]$err_out, pool=TRUE, multithread=2, HOMOPOLYMER_GAP_PENALTY=-1, BAND_SIZE=32)
+dadaFs[[1]]
+mergers <- makeSequenceTable(dadaFs)
+head(mergers[[1]])
+seqtab.all <- mergers
+saveRDS(seqtab.all, "/Volumes/GoogleDrive/My\ Drive/Stromatolites_Eukaryome/Eukaryote_microbiome/analysis/DADA2/SB-HC-seqtab.rds") # CHANGE ME to where you want sequence table saved
+```
+
+
+
