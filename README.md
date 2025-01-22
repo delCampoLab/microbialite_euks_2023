@@ -1,5 +1,6 @@
 # microbialite_euks_2023
-Analysis and scripts related to Bonacolta et al 2023 "The eukaryome of modern microbialites reveals distinct colonization across aquatic ecosystems"
+Analysis and scripts related to:
+Bonacolta, A.M., Visscher, P.T., del Campo, J. et al. The eukaryome of modern microbialites reveals distinct colonization across aquatic ecosystems. npj Biofilms Microbiomes 10, 78 (2024). https://doi.org/10.1038/s41522-024-00547-z
 
 DADA2_processing contains r markdowns detailing how DADA2 was run on the various samples and combined
 
